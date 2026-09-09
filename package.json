@@ -25,6 +25,7 @@
     "format:check": "prettier --check .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:local-codex": "node scripts/test-local-codex.mjs",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "rust:fmt": "source ~/.cargo/env && cd src-tauri && cargo fmt",

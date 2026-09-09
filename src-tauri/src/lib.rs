@@ -6,6 +6,7 @@
 
 mod bindings;
 mod commands;
+mod local_server;
 mod types;
 mod utils;
 
@@ -107,6 +108,8 @@ pub fn run() {
                 "App handle initialized for package: {}",
                 app.package_info().name
             );
+
+            local_server::start();
 
             // Set up global shortcut plugin (without any shortcuts - we register them separately)
             #[cfg(desktop)]
