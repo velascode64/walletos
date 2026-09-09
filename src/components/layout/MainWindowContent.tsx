@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { ChevronDown, CircleCheck, TerminalSquare } from 'lucide-react'
+import {
+  ChevronDown,
+  CircleCheck,
+  Maximize2,
+  Minimize2,
+  TerminalSquare,
+} from 'lucide-react'
 import brandLight from '@/assets/brand-light.png'
 import { cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
@@ -18,6 +24,7 @@ export function MainWindowContent({
 }: MainWindowContentProps) {
   const terminalElement = useRef<HTMLDivElement>(null)
   const [isLogMenuOpen, setIsLogMenuOpen] = useState(false)
+  const [isTerminalExpanded, setIsTerminalExpanded] = useState(false)
   const [logFilter, setLogFilter] = useState('All logs')
 
   useEffect(() => {
@@ -95,7 +102,10 @@ export function MainWindowContent({
         </div>
       </section>
 
-      <section className="log-panel" aria-label="Runtime logs">
+      <section
+        className={cn('log-panel', isTerminalExpanded && 'log-panel-expanded')}
+        aria-label="Runtime logs"
+      >
         <div className="log-panel-header">
           <div className="log-panel-title">
             <TerminalSquare size={16} />
@@ -103,15 +113,26 @@ export function MainWindowContent({
             <span className="log-live-dot" aria-label="Live" />
           </div>
           <div className="log-menu-wrap">
-            <button
-              type="button"
-              className="log-filter-button"
-              aria-expanded={isLogMenuOpen}
-              onClick={() => setIsLogMenuOpen(open => !open)}
-            >
-              {logFilter}
-              <ChevronDown size={14} />
-            </button>
+            <div className="log-actions">
+              <button
+                type="button"
+                className="log-expand-button"
+                aria-label={isTerminalExpanded ? 'Reduce terminal' : 'Expand terminal'}
+                title={isTerminalExpanded ? 'Reduce terminal' : 'Expand terminal'}
+                onClick={() => setIsTerminalExpanded(expanded => !expanded)}
+              >
+                {isTerminalExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                type="button"
+                className="log-filter-button"
+                aria-expanded={isLogMenuOpen}
+                onClick={() => setIsLogMenuOpen(open => !open)}
+              >
+                {logFilter}
+                <ChevronDown size={14} />
+              </button>
+            </div>
             {isLogMenuOpen && (
               <div className="log-menu" role="menu">
                 {['All logs', 'Errors only', 'Clear logs'].map(option => (

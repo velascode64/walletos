@@ -147,6 +147,11 @@
   border-radius: 12px;
   background: #111318;
   box-shadow: 0 18px 38px rgb(30 36 44 / 16%);
+  transition: width 180ms ease;
+}
+
+.log-panel-expanded {
+  width: min(100%, 860px);
 }
 
 .log-panel-header {
@@ -182,6 +187,30 @@
 
 .log-menu-wrap {
   position: relative;
+}
+
+.log-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.log-expand-button {
+  display: inline-grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #aeb7c4;
+  cursor: pointer;
+}
+
+.log-expand-button:hover {
+  background: #272c36;
+  color: #fff;
 }
 
 .log-filter-button {
@@ -236,10 +265,27 @@
 .runtime-terminal {
   min-height: 144px;
   padding: 11px 14px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  transition: min-height 180ms ease;
 }
 
 .runtime-terminal .xterm {
   height: 120px;
+  min-width: 100%;
+}
+
+.runtime-terminal .xterm-viewport {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+
+.log-panel-expanded .runtime-terminal {
+  min-height: 336px;
+}
+
+.log-panel-expanded .runtime-terminal .xterm {
+  height: 312px;
 }
 
 @media (max-width: 640px) {
