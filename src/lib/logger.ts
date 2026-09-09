@@ -16,6 +16,12 @@ interface LogEntry {
 
 class Logger {
   private isDevelopment = import.meta.env.DEV
+  private listeners = new Set<(entry: LogEntry) => void>()
+
+  subscribe(listener: (entry: LogEntry) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
 
   /**
    * Log a trace message (most verbose)
@@ -63,6 +69,8 @@ class Logger {
       timestamp: new Date(),
       context,
     }
+
+    this.listeners.forEach(listener => listener(entry))
 
     // Always log to console in development
     if (this.isDevelopment) {
