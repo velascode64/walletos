@@ -27,7 +27,12 @@ try {
   const response = await request("/codex", {
     method: "POST",
     body: JSON.stringify({
-      goal: "Who are you? Reply briefly and identify yourself as Codex.",
+      protocolVersion: 1,
+      taskId: `task_smoke_${Date.now()}`,
+      type: "conversation",
+      intent: "Who are you? Reply briefly and identify yourself as Codex.",
+      context: {},
+      skills: [],
       model: process.env.CODEX_MODEL || "gpt-5.5"
     })
   });

@@ -1,0 +1,18 @@
+{
+  "name": "the-graph-subgraph",
+  "transport": "sse",
+  "url": "https://subgraphs.mcp.thegraph.com/sse",
+  "authentication": {
+    "type": "bearer",
+    "env": "THEGRAPH_API_KEY"
+  },
+  "startup": {
+    "command": "npx",
+    "args": [
+      "mcp-remote",
+      "--header",
+      "Authorization:Bearer ${THEGRAPH_API_KEY}",
+      "https://subgraphs.mcp.thegraph.com/sse"
+    ]
+  }
+}

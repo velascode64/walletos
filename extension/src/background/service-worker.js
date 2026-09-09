@@ -1,4 +1,5 @@
 import { MESSAGE_TYPES, NATIVE_HOST_NAME, makeEnvelope } from "../shared/messages.js";
+import { createWalletOsTask, normalizeWalletOsResponse } from "../shared/protocol.js";
 import { createObservation } from "../shared/schemas.js";
 import { validateActionPlan } from "../shared/policy.js";
 
@@ -249,23 +250,39 @@ async function requestClaimosSecurityAnalysis(payload = {}) {
     domain: payload.page?.domain
   });
   try {
+    const task = createWalletOsTask({
+      taskId: payload.eventId,
+      type: "transaction_review",
+      intent: `Tell me if the user should approve this ${payload.rpc?.method || "wallet"} request.`,
+      context: {
+        page: payload.page,
+        wallet: payload.wallet,
+        interaction: {
+          rpcMethod: payload.rpc?.method,
+          params: payload.rpc?.params,
+          to: payload.transaction?.to,
+          value: payload.transaction?.value,
+          data: payload.transaction?.data
+        },
+        provider: payload.provider,
+        advertisedAction: payload.advertisedAction
+      },
+      skills: ["claimos-security"]
+    });
     const response = await fetch("http://127.0.0.1:48745/codex", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode: "security_analysis",
-        goal: `Analyze this wallet request before the user signs it. RPC method: ${payload.rpc?.method || "unknown"}.`,
-        securityContext: payload
-      },)
+      body: JSON.stringify(task)
     });
     const result = await response.json();
     if (!response.ok || result.ok === false) {
       throw new Error(result.message || `walletos_app returned HTTP ${response.status}.`);
     }
-    console.log("[WalletOS] Codex security analysis received:", result);
+    const normalized = normalizeWalletOsResponse(result, task.taskId);
+    console.log("[WalletOS] Codex security analysis received:", normalized);
     return {
       ok: true,
-      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, result.report || result)
+      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, normalized.report || normalized)
     };
   } catch (error) {
     console.warn("[WalletOS] walletos_app HTTP/Codex unavailable:", error);
@@ -441,10 +458,20 @@ async function requestWalletOsAppAgent(payload = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000);
   try {
+    const task = createWalletOsTask({
+      type: "conversation",
+      intent: payload.goal || payload.userMessage || payload.message || "",
+      context: {
+        conversation: payload.conversationContext || payload.messages || [],
+        page: payload.observation || null,
+        wallet: payload.wallet || null
+      },
+      skills: []
+    });
     const response = await fetch("http://127.0.0.1:48745/codex", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...task, model: payload.model }),
       signal: controller.signal
     });
     if (!response.ok) {
@@ -455,7 +482,7 @@ async function requestWalletOsAppAgent(payload = {}) {
     console.log("[WalletOS app] Local app Codex response:", result);
     return result.ok === false
       ? { type: "agent_error", message: result.message || "WalletOS app Codex call failed." }
-      : result;
+      : normalizeWalletOsResponse(result, task.taskId);
   } catch {
     return null;
   } finally {

@@ -14,6 +14,8 @@ const requiredFiles = [
   "src/claimos/content-script.js",
   "src/claimos/wallet-interceptor.js",
   "src/shared/messages.js",
+  "src/shared/protocol.js",
+  "src/shared/action-protocol.js",
   "src/shared/deep-search.js",
   "src/shared/runtime-log.js",
   "src/shared/policy.js",

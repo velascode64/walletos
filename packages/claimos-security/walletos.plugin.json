@@ -1,0 +1,17 @@
+{
+  "name": "claimos-security",
+  "version": "0.1.0",
+  "skill": "./SKILL.md",
+  "requires": {
+    "cli": ["cast", "anvil"],
+    "mcp": [],
+    "env": []
+  },
+  "capabilities": [
+    "transaction.decode",
+    "transaction.simulate",
+    "approval.inspect",
+    "signature.review",
+    "domain.inspect"
+  ]
+}
