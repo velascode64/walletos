@@ -288,14 +288,16 @@ function render(options = {}) {
     <section class="topbar">
       <div class="brand-lockup">
         <img class="brand-mark" src="${escapeHtml(getBrandMarkSrc())}" alt="" aria-hidden="true">
-        <h1><span>Browser</span><span>Companion</span></h1>
-        <span class="title-line" aria-hidden="true"></span>
+        <div class="brand-copy">
+          <h1>WalletOS <span class="brand-status-dot" aria-label="WalletOS active"></span></h1>
+          <span class="brand-domain">${escapeHtml(getPageDomainLabel())}</span>
+        </div>
       </div>
       <div class="top-actions">
-        <button id="call-codex" class="top-action call-codex" type="button">Call Codex</button>
+        <span class="network-chip">${escapeHtml(getNetworkLabel())}</span>
+        <span class="wallet-chip">${escapeHtml(getWalletLabel())}</span>
         <button id="open-settings-view" class="top-action icon-action" type="button" title="Settings" aria-label="Settings">&#9881;</button>
         <button id="theme-toggle" class="top-action icon-action theme-toggle" type="button" title="${escapeHtml(getThemeTitle())}" aria-label="${escapeHtml(getThemeTitle())}">${escapeHtml(getThemeIcon())}</button>
-        ${renderSelectedProviderStatusBadge()}
       </div>
     </section>
 
@@ -321,15 +323,52 @@ function render(options = {}) {
       </section>
     </section>
 
-    <details class="page-strip" aria-label="Current page">
-      <summary>
-        <span class="eyebrow">Current page</span>
-        <strong>${escapeHtml(state.page.title)}</strong>
-        <button id="observe-page" type="button">${escapeHtml(getObserveButtonText())}</button>
-      </summary>
-      <p>${escapeHtml(state.page.summary)}</p>
-      ${state.page.url ? `<p class="memory-path">${escapeHtml(state.page.url)}</p>` : ""}
-    </details>
+    <section class="active-context" aria-label="Active context">
+      <div class="section-heading">
+        <span class="eyebrow">Active context</span>
+        <span class="monitoring-pill"><span class="pill-dot"></span>${escapeHtml(getMonitoringLabel())}</span>
+      </div>
+      <div class="wallet-summary">
+        <span class="wallet-avatar" aria-hidden="true">≡</span>
+        <div class="wallet-summary-copy">
+          <strong>Wallet #1 (Main)</strong>
+          <span>${escapeHtml(getWalletLabel())}</span>
+        </div>
+        <div class="wallet-balance">
+          <strong>-- ETH</strong>
+          <span>Balance unavailable</span>
+        </div>
+      </div>
+      <div class="context-footer">
+        <span class="context-info-icon" aria-hidden="true">i</span>
+        <span>${escapeHtml(state.page.url ? `Observing ${getPageDomainLabel()} on the current tab.` : "Open a dApp to start contextual monitoring.")}</span>
+        <button id="observe-page" class="context-observe" type="button">${escapeHtml(getObserveButtonText())}</button>
+      </div>
+    </section>
+
+    <section class="suggested-actions" aria-labelledby="suggested-actions-title">
+      <div class="section-heading">
+        <h2 id="suggested-actions-title">Suggested actions</h2>
+      </div>
+      <div class="action-grid">
+        <button class="suggested-action" type="button" data-suggested-action="site">
+          <span><strong>Check this site</strong><small>Verify domain reputation</small></span><b aria-hidden="true">→</b>
+        </button>
+        <button class="suggested-action" type="button" data-suggested-action="portfolio">
+          <span><strong>Analyze portfolio</strong><small>Token balances &amp; risk</small></span><b aria-hidden="true">→</b>
+        </button>
+        <button class="suggested-action" type="button" data-suggested-action="claims">
+          <span><strong>Find my claims</strong><small>Unclaimed airdrops &amp; rewards</small></span><b aria-hidden="true">→</b>
+        </button>
+        <button class="suggested-action" type="button" data-suggested-action="contract">
+          <span><strong>Inspect contract</strong><small>Simulate unknown targets</small></span><b aria-hidden="true">→</b>
+        </button>
+      </div>
+    </section>
+
+    <aside class="autonomous-guard" aria-label="Autonomous guard">
+      <strong>Autonomous Guard:</strong> WalletOS evaluates simulation logs, malicious permissions, and slippage before your wallet prompts you to sign.
+    </aside>
 
     ${state.pendingPlan ? renderActionPreview() : ""}
     ${state.pendingPermissionRequest ? renderPermissionRequestPreview() : ""}
@@ -344,7 +383,8 @@ function render(options = {}) {
   `;
 
   document.getElementById("observe-page").addEventListener("click", observePage);
-  document.getElementById("call-codex").addEventListener("click", callCodex);
+  const callCodexButton = document.getElementById("call-codex");
+  if (callCodexButton) callCodexButton.addEventListener("click", callCodex);
   const observePageSettings = document.getElementById("observe-page-settings");
   if (observePageSettings) observePageSettings.addEventListener("click", observePage);
   document.getElementById("theme-toggle").addEventListener("click", cycleTheme);
@@ -426,6 +466,15 @@ function render(options = {}) {
     state.activity.unshift(`Provider set to ${provider?.label || state.codex.provider}.`);
     persistConnectorSelection();
     render();
+  });
+  const chatAgentSelect = document.getElementById("chat-agent-select");
+  if (chatAgentSelect) chatAgentSelect.addEventListener("change", (event) => {
+    state.codex.provider = event.target.value;
+    const provider = getSelectedProviderStatus();
+    state.codex.model = provider?.defaultModel || provider?.models?.[0] || "default";
+    persistConnectorSelection();
+    state.activity.unshift(`Agent set to ${provider?.label || state.codex.provider}.`);
+    render({ preserveComposer: true });
   });
   const clearActivityButton = document.getElementById("clear-activity");
   if (clearActivityButton) clearActivityButton.addEventListener("click", () => {
@@ -600,6 +649,27 @@ function getBrandMarkSrc() {
   return getResolvedTheme() === "dark"
     ? "../../assets/icons/brand-dark.png"
     : "../../assets/icons/brand-light.png";
+}
+
+function getPageDomainLabel() {
+  try {
+    return state.page.url ? new URL(state.page.url).hostname : "No dApp connected";
+  } catch {
+    return "Current dApp";
+  }
+}
+
+function getNetworkLabel() {
+  return state.page.observation?.chainId || "Base";
+}
+
+function getWalletLabel() {
+  const address = state.page.observation?.wallet?.address || state.page.observation?.address;
+  return address ? `${String(address).slice(0, 6)}...${String(address).slice(-4)}` : "0x71C...89e2";
+}
+
+function getMonitoringLabel() {
+  return state.page.url ? "Live Monitoring" : "Ready to monitor";
 }
 
 function getSettingsSubtitle() {
@@ -1157,19 +1227,24 @@ function renderComposer() {
 
   return `
     <div class="composer-wrap">
-      <div class="composer-mode-switch" role="tablist" aria-label="Composer mode">
-        <button type="button" class="composer-mode${deepSearchMode ? "" : " active"}" data-composer-mode="chat" aria-pressed="${deepSearchMode ? "false" : "true"}">Chat</button>
-        <button type="button" class="composer-mode${deepSearchMode ? " active" : ""}" data-composer-mode="deep-search" aria-pressed="${deepSearchMode ? "true" : "false"}">Deep Search</button>
-      </div>
       <form id="chat-form" class="composer">
-        <label class="file-input file-input-icon" title="Attach file" aria-label="Attach file">
-          <input id="attachment-input" type="file" multiple>
-          <span aria-hidden="true">+</span>
-        </label>
-        <textarea id="chat-input" rows="3" placeholder="${escapeHtml(deepSearchMode ? "Describe the research goal for a report tab" : "Describe your goal on this page")}">${escapeHtml(state.composerDraft)}</textarea>
-        <div class="composer-actions">
-          ${stopButton}
-          <button type="submit" class="composer-submit">${escapeHtml(submitLabel)}</button>
+        <textarea id="chat-input" rows="3" placeholder="${escapeHtml(deepSearchMode ? "Describe the research goal for a report tab" : "Ask WalletOS anything...")}">${escapeHtml(state.composerDraft)}</textarea>
+        <div class="composer-toolbar">
+          <label class="file-input file-input-icon" title="Attach file" aria-label="Attach file">
+            <input id="attachment-input" type="file" multiple>
+            <span aria-hidden="true">+</span>
+          </label>
+          <label class="agent-picker" title="Select agent">
+            <span class="agent-picker-icon" aria-hidden="true">✦</span>
+            <select id="chat-agent-select" aria-label="Select agent">
+              ${renderProviderOptions()}
+            </select>
+          </label>
+          <span class="composer-spacer"></span>
+          <div class="composer-actions">
+            ${stopButton}
+            <button type="submit" class="composer-submit">${escapeHtml(submitLabel)}</button>
+          </div>
         </div>
       </form>
       ${queueLabel ? `<p class="composer-meta">${escapeHtml(queueLabel)}</p>` : ""}
