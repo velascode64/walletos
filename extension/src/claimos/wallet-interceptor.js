@@ -1,0 +1,133 @@
+(() => {
+  const source = "CLAIMOS_GUARDIAN";
+  const watchedMethods = new Set([
+    "eth_requestAccounts",
+    "eth_sendTransaction",
+    "eth_sign",
+    "personal_sign",
+    "eth_signTypedData",
+    "eth_signTypedData_v4",
+    "wallet_switchEthereumChain",
+    "wallet_addEthereumChain"
+  ]);
+  const patchedProviders = new WeakSet();
+  const pendingRequests = new Map();
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || event.data?.source !== source || event.data?.type !== "WALLET_DECISION") {
+      return;
+    }
+
+    const pending = pendingRequests.get(event.data.requestId);
+    if (!pending) {
+      return;
+    }
+
+    pendingRequests.delete(event.data.requestId);
+    pending.resolve(event.data.allow === true);
+  });
+
+  function patchProvider(provider) {
+    if (!provider?.request || patchedProviders.has(provider)) {
+      return false;
+    }
+
+    const originalRequest = provider.request.bind(provider);
+    patchedProviders.add(provider);
+    try {
+      Object.defineProperty(provider, "__claimosGuardianPatched", { value: true });
+    } catch {
+      // Some wallet providers expose non-extensible objects.
+    }
+    const providerName = getProviderName(provider);
+    console.log("[WalletOS] Ethereum provider patched. Watching wallet RPC requests.", providerName);
+
+    provider.request = function claimosObservedRequest(args) {
+      const method = String(args?.method || "");
+      if (watchedMethods.has(method)) {
+        const requestId = `wallet_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        console.log("[WalletOS] WALLET EVENT DETECTED:", method, providerName, args);
+        const decision = new Promise((resolve) => {
+          const timeout = window.setTimeout(() => {
+            pendingRequests.delete(requestId);
+            console.warn("[WalletOS] Guard analysis timed out; rejecting wallet request.");
+            resolve(false);
+          }, 120000);
+          pendingRequests.set(requestId, {
+            resolve: (allow) => {
+              window.clearTimeout(timeout);
+              resolve(allow);
+            }
+          });
+        });
+
+        window.postMessage({
+          source,
+          type: "WALLET_REQUEST",
+          requestId,
+          payload: {
+            method,
+            params: Array.isArray(args?.params) ? args.params : [],
+            chainId: provider.chainId || "",
+            selectedAddress: provider.selectedAddress || "",
+            providerName
+          }
+        }, window.location.origin);
+
+        return decision.then((allow) => {
+          if (!allow) {
+            const error = new Error("ClaimOS Guardian blocked this wallet request.");
+            error.code = 4001;
+            throw error;
+          }
+          return originalRequest(args);
+        });
+      }
+
+      return originalRequest(args);
+    };
+
+    return true;
+  }
+
+  function tryPatch() {
+    const patched = patchAllProviders();
+    if (!patched) {
+      console.log("[WalletOS] Waiting for window.ethereum...");
+    }
+  }
+
+  console.log("[WalletOS] Wallet interceptor loaded. Waiting for MetaMask/EIP-6963 providers.");
+
+  function patchAllProviders() {
+    const providers = [
+      window.ethereum,
+      ...(Array.isArray(window.ethereum?.providers) ? window.ethereum.providers : [])
+    ].filter(Boolean);
+
+    return providers.map(patchProvider).some(Boolean);
+  }
+
+  function getProviderName(provider) {
+    if (provider?.isMetaMask) return "MetaMask";
+    if (provider?.isCoinbaseWallet) return "Coinbase Wallet";
+    if (provider?.isRabby) return "Rabby";
+    return provider?.info?.name || "unknown provider";
+  }
+
+  window.addEventListener("eip6963:announceProvider", (event) => {
+    const provider = event.detail?.provider;
+    if (patchProvider(provider)) {
+      console.log("[WalletOS] EIP-6963 provider patched:", event.detail?.info?.name || getProviderName(provider));
+    }
+  });
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+  tryPatch();
+  const timer = window.setInterval(() => {
+    if (patchAllProviders()) {
+      window.clearInterval(timer);
+    }
+  }, 250);
+  window.setTimeout(() => window.clearInterval(timer), 30000);
+})();
