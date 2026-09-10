@@ -1,5 +1,10 @@
 import { MESSAGE_TYPES, NATIVE_HOST_NAME, makeEnvelope } from "../shared/messages.js";
-import { createWalletOsTask, normalizeWalletOsResponse } from "../shared/protocol.js";
+import {
+  createClaimosChatEvent,
+  createWalletOsConversationContext,
+  createWalletOsTask,
+  normalizeWalletOsResponse
+} from "../shared/protocol.js";
 import { createObservation } from "../shared/schemas.js";
 import { validateActionPlan } from "../shared/policy.js";
 
@@ -12,6 +17,7 @@ let nativePortSequence = 1;
 const nativePortPending = new Map();
 let activeNativeRequestId = null;
 const AUTO_OBSERVE_OPENED_TAB_LIMIT = 3;
+const CLAIMOS_ANALYSIS_KEY_PREFIX = "walletosClaimosAnalysis:";
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.windowId) {
@@ -72,7 +78,7 @@ function getChatPayloadPreview(payload = {}) {
   return String(value || JSON.stringify(payload).slice(0, 240)).replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
-async function handleMessage(message) {
+async function handleMessage(message, sender) {
   if (message?.type === MESSAGE_TYPES.OBSERVE_ACTIVE_TAB) {
     return observeActiveTab(message.payload);
   }
@@ -177,7 +183,7 @@ async function handleMessage(message) {
   }
 
   if (message?.type === MESSAGE_TYPES.CLAIMOS_SECURITY_ANALYSIS) {
-    return requestClaimosSecurityAnalysis(message.payload);
+    return requestClaimosSecurityAnalysis(message.payload, sender);
   }
 
   return {
@@ -243,12 +249,20 @@ async function checkNativeHealth() {
   }
 }
 
-async function requestClaimosSecurityAnalysis(payload = {}) {
+async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
   console.log("[WalletOS] Sending wallet event to walletos_app HTTP/Codex:", {
     eventId: payload.eventId,
     method: payload.rpc?.method,
     domain: payload.page?.domain
   });
+  openClaimosPanel(sender);
+  await publishClaimosStatus(createClaimosChatEvent({
+    phase: "analyzing",
+    context: payload
+  }), sender);
+
+  let report;
+  let analysisFailed = false;
   try {
     const task = createWalletOsTask({
       taskId: payload.eventId,
@@ -269,40 +283,70 @@ async function requestClaimosSecurityAnalysis(payload = {}) {
       },
       skills: ["claimos-security"]
     });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 115000);
     const response = await fetch("http://127.0.0.1:48745/codex", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(task)
-    });
+      body: JSON.stringify(task),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout));
     const result = await response.json();
     if (!response.ok || result.ok === false) {
       throw new Error(result.message || `walletos_app returned HTTP ${response.status}.`);
     }
     const normalized = normalizeWalletOsResponse(result, task.taskId);
     console.log("[WalletOS] Codex security analysis received:", normalized);
-    return {
-      ok: true,
-      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, normalized.report || normalized)
-    };
+    report = normalized.report || normalized;
   } catch (error) {
+    analysisFailed = true;
     console.warn("[WalletOS] walletos_app HTTP/Codex unavailable:", error);
-    return {
-      ok: true,
-      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, {
-        verdict: "WARNING",
-        confidence: 0.25,
-        summary: error.message || "ClaimOS native analysis is unavailable.",
-        reasons: [{
-          severity: "warning",
-          title: "Native analysis unavailable",
-          explanation: "The wallet request was observed, but the local ClaimOS connector did not return a report."
-        }],
-        dangerousPermissions: [],
-        recommendation: "REVIEW",
-        needsMoreInvestigation: true
-      })
+    report = {
+      verdict: "WARNING",
+      confidence: 0.25,
+      summary: error.message || "ClaimOS native analysis is unavailable.",
+      reasons: [{
+        severity: "warning",
+        title: "Native analysis unavailable",
+        explanation: "The wallet request was observed, but the local ClaimOS connector did not return a report."
+      }],
+      dangerousPermissions: [],
+      recommendation: "REVIEW",
+      needsMoreInvestigation: true
     };
   }
+
+  await publishClaimosStatus(createClaimosChatEvent({
+    phase: analysisFailed ? "failed" : "completed",
+    context: payload,
+    report
+  }), sender);
+  return {
+    ok: true,
+    envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, report)
+  };
+}
+
+async function publishClaimosStatus(payload, sender = {}) {
+  const routedPayload = {
+    ...payload,
+    updatedAt: Date.now(),
+    target: {
+      tabId: sender.tab?.id ?? null,
+      windowId: sender.tab?.windowId ?? null
+    }
+  };
+  await chrome.storage.session.set({ [`${CLAIMOS_ANALYSIS_KEY_PREFIX}${payload.eventId}`]: routedPayload });
+  chrome.runtime.sendMessage(makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_STATUS, routedPayload)).catch(() => {
+    // The storage entry lets a side panel opened after this event recover it.
+  });
+}
+
+function openClaimosPanel(sender = {}) {
+  if (sender.tab?.windowId == null) return;
+  chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch((error) => {
+    console.warn("[WalletOS] Could not open the side panel automatically:", error);
+  });
 }
 
 async function connectCodex(payload = {}) {
@@ -461,12 +505,17 @@ async function requestWalletOsAppAgent(payload = {}) {
     const task = createWalletOsTask({
       type: "conversation",
       intent: payload.goal || payload.userMessage || payload.message || "",
-      context: {
+      context: createWalletOsConversationContext({
         conversation: payload.conversationContext || payload.messages || [],
-        page: payload.observation || null,
-        wallet: payload.wallet || null
-      },
+        observation: payload.observation,
+        wallet: payload.wallet
+      }),
       skills: []
+    });
+    console.log("[WalletOS app] POST /codex", {
+      taskId: task.taskId,
+      includesPageContext: Boolean(task.context.page),
+      conversationMessages: task.context.conversation.length
     });
     const response = await fetch("http://127.0.0.1:48745/codex", {
       method: "POST",
@@ -483,7 +532,8 @@ async function requestWalletOsAppAgent(payload = {}) {
     return result.ok === false
       ? { type: "agent_error", message: result.message || "WalletOS app Codex call failed." }
       : normalizeWalletOsResponse(result, task.taskId);
-  } catch {
+  } catch (error) {
+    console.warn("[WalletOS app] Local HTTP bridge request failed:", error);
     return null;
   } finally {
     clearTimeout(timeout);

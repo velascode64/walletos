@@ -13,6 +13,28 @@ export function createWalletOsTask({ type, intent, context = {}, skills = [], ta
   };
 }
 
+export function createWalletOsConversationContext({ conversation = [], observation = null, wallet = null } = {}) {
+  return {
+    conversation: Array.isArray(conversation) ? conversation : [],
+    page: observation || null,
+    wallet: wallet || null
+  };
+}
+
+export function createClaimosChatEvent({ phase = "analyzing", context = {}, report = null } = {}) {
+  return {
+    eventId: context.eventId || report?.eventId || "",
+    phase: ["analyzing", "completed", "failed"].includes(phase) ? phase : "failed",
+    context: {
+      method: context.rpc?.method || "wallet request",
+      provider: context.provider || "unknown provider",
+      domain: context.page?.domain || "",
+      walletAddress: context.wallet?.address || ""
+    },
+    report
+  };
+}
+
 export function normalizeWalletOsResponse(response = {}, taskId = "") {
   const message = response.message || response.text || "";
   return {

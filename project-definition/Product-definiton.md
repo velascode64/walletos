@@ -6,6 +6,25 @@ Type: Browser Extension + Local Agent Runtime
 Primary Surface: Web browser  
 Primary Domain: Web3 / Crypto Wallets / dApps
 
+> **Current implementation priority:** First make the demo path reliable: the
+> extension must call Codex as the selected WalletOS agent, pass observed page
+> context in every normal chat task, and render concise user-facing responses
+> instead of protocol JSON. Plugin integration remains the next strategic
+> priority; broader agents and advanced automation follow after this path is
+> verified.
+
+> **Chat behavior for the current demo:** Each extension opening starts a new,
+> ephemeral validation session. Stored chat messages and task memory are not
+> restored. Suggested actions are visible only before the first message and
+> disappear when the conversation starts. Every message sent during the open
+> session must go through the WalletOS bridge to Codex with the current page
+> context. The chat renders the agent's user-facing answer, never the internal
+> protocol envelope or raw JSON.
+>
+> Sensitive wallet interactions open the extension side panel and surface
+> ClaimOS analysis as an in-chat status/result. WalletOS does not render a
+> separate analysis overlay on top of the dApp page.
+
 ---
 
 # 1. Product Summary
@@ -909,7 +928,7 @@ The WalletOS agent should discover available skills dynamically.
 
 Conceptual structure:
 
-skills/
+runtime/skills/
     security/
         skill.md
         manifest.json

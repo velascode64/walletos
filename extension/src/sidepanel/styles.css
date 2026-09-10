@@ -1049,6 +1049,21 @@ h2 {
   font-weight: 650;
 }
 
+.web-context-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 29px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.web-context-toggle input {
+  accent-color: var(--accent);
+}
+
 .composer-actions {
   display: flex;
   align-items: center;

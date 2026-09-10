@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { createWalletOsTask, normalizeWalletOsResponse } from "../src/shared/protocol.js";
+import {
+  createClaimosChatEvent,
+  createWalletOsConversationContext,
+  createWalletOsTask,
+  normalizeWalletOsResponse
+} from "../src/shared/protocol.js";
 
 const task = createWalletOsTask({
   taskId: "task_test",
@@ -27,6 +32,41 @@ assert.deepEqual(normalizeWalletOsResponse({ status: "completed", message: "Done
   report: undefined,
   actions: [],
   error: undefined
+});
+
+assert.deepEqual(createWalletOsConversationContext({
+  conversation: [{ role: "user", text: "Hello" }]
+}), {
+  conversation: [{ role: "user", text: "Hello" }],
+  page: null,
+  wallet: null
+});
+
+assert.deepEqual(createClaimosChatEvent({
+  phase: "completed",
+  context: {
+    eventId: "evt_test",
+    rpc: { method: "personal_sign" },
+    provider: "MetaMask",
+    page: { domain: "example.com" }
+  },
+  report: { verdict: "SAFE" }
+}), {
+  eventId: "evt_test",
+  phase: "completed",
+  context: {
+    method: "personal_sign",
+    provider: "MetaMask",
+    domain: "example.com",
+    walletAddress: ""
+  },
+  report: { verdict: "SAFE" }
+});
+
+assert.deepEqual(createWalletOsConversationContext({
+  observation: { tab: { url: "https://example.com" } }
+}).page, {
+  tab: { url: "https://example.com" }
 });
 
 console.log("WalletOS protocol tests passed.");

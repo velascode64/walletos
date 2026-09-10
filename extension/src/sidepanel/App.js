@@ -24,6 +24,7 @@ const HTTP_PROVIDER_KIND_CLOUDFLARE = "cloudflare-workers-ai";
 const GEMINI_CLI_PROVIDER_ID = "google-gemini-cli";
 const GEMINI_NANO_PROVIDER_ID = "chrome-gemini-nano";
 const GEMINI_NANO_MODEL_ID = "gemini-nano";
+const CLAIMOS_ANALYSIS_KEY_PREFIX = "walletosClaimosAnalysis:";
 
 function createEmptyTaskMemory() {
   return {
@@ -168,6 +169,8 @@ const state = {
   pendingMemoryProposal: null,
   composerMode: "chat",
   composerDraft: "",
+  includeWebContext: false,
+  chatSessionStarted: false,
   outboundQueue: [],
   isProcessingQueue: false,
   stopProcessingRequested: false,
@@ -176,6 +179,7 @@ const state = {
   pendingSteeredMessageId: null,
   liveThinking: null,
   liveThinkingOpen: false,
+  claimosEventPhases: {},
   chatAtBottom: true,
   activity: [],
   debugLogs: [],
@@ -252,13 +256,15 @@ initialize();
 
 async function initialize() {
   await restoreProviderSettings();
-  await restoreSession();
+  await loadUiPreferences();
+  resetChatSession();
   await captureSidebarContext();
   await refreshAccessibleTabsState();
   applyTheme();
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   chrome.storage.onChanged.addListener(handleStorageChange);
   chrome.tabs.onRemoved.addListener(handleTabRemoved);
+  await restoreClaimosAnalysis();
   render();
   checkConnector();
   loadUserMemory();
@@ -346,7 +352,7 @@ function render(options = {}) {
       </div>
     </section>
 
-    <section class="suggested-actions" aria-labelledby="suggested-actions-title">
+    ${state.chatSessionStarted ? "" : `<section class="suggested-actions" aria-labelledby="suggested-actions-title">
       <div class="section-heading">
         <h2 id="suggested-actions-title">Suggested actions</h2>
       </div>
@@ -364,7 +370,7 @@ function render(options = {}) {
           <span><strong>Inspect contract</strong><small>Simulate unknown targets</small></span><b aria-hidden="true">→</b>
         </button>
       </div>
-    </section>
+    </section>`}
 
     <aside class="autonomous-guard" aria-label="Autonomous guard">
       <strong>Autonomous Guard:</strong> WalletOS evaluates simulation logs, malicious permissions, and slippage before your wallet prompts you to sign.
@@ -475,6 +481,10 @@ function render(options = {}) {
     persistConnectorSelection();
     state.activity.unshift(`Agent set to ${provider?.label || state.codex.provider}.`);
     render({ preserveComposer: true });
+  });
+  const includeWebContext = document.getElementById("include-web-context");
+  if (includeWebContext) includeWebContext.addEventListener("change", (event) => {
+    state.includeWebContext = event.target.checked;
   });
   const clearActivityButton = document.getElementById("clear-activity");
   if (clearActivityButton) clearActivityButton.addEventListener("click", () => {
@@ -1240,6 +1250,10 @@ function renderComposer() {
               ${renderProviderOptions()}
             </select>
           </label>
+          <label class="web-context-toggle" title="Include the observed page in this message">
+            <input id="include-web-context" type="checkbox" ${state.includeWebContext ? "checked" : ""}>
+            <span>Include web</span>
+          </label>
           <span class="composer-spacer"></span>
           <div class="composer-actions">
             ${stopButton}
@@ -1570,7 +1584,29 @@ function renderMessageContent(message) {
   if (message.role === "assistant" && message.plannerDraft) {
     return `${renderPlannerDraftMessage(message)}${resumeControl}`;
   }
-  return `<div class="message-body">${renderRichText(message.text, { allowMermaid: true })}</div>${resumeControl}`;
+  return `<div class="message-body">${renderRichText(getReadableAgentText(message.text), { allowMermaid: true })}</div>${resumeControl}`;
+}
+
+function getReadableAgentText(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+
+  if (typeof parsed === "string") return getReadableAgentText(parsed);
+  if (parsed && typeof parsed === "object") {
+    if (typeof parsed.text === "string" && parsed.text.trim()) return getReadableAgentText(parsed.text);
+    if (typeof parsed.message === "string" && parsed.message.trim()) return getReadableAgentText(parsed.message);
+    if (typeof parsed.summary_for_user === "string" && parsed.summary_for_user.trim()) return parsed.summary_for_user;
+    if (typeof parsed.summary === "string" && parsed.summary.trim()) return parsed.summary;
+  }
+
+  return raw;
 }
 
 function renderResumeControl(message) {
@@ -1965,8 +2001,9 @@ function renderModelOptions() {
 }
 
 function renderProviderOptions() {
-  const connected = state.connector.providers.filter((provider) => provider.connected);
-  const providers = connected.length ? connected : state.connector.providers;
+  const codex = state.connector.providers.find((provider) => provider.id === "openai-codex")
+    || getDefaultProviderStatus("openai-codex");
+  const providers = [codex];
 
   return providers.map((provider) => {
     const selected = provider.id === state.codex.provider ? "selected" : "";
@@ -3712,12 +3749,14 @@ async function handleChatSubmit(event) {
   const createdAt = Date.now();
 
   state.composerDraft = "";
+  state.chatSessionStarted = true;
   state.outboundQueue.push({
     id: crypto.randomUUID(),
     messageId,
     text,
     createdAt,
     planContext: questionContext,
+    includeWebContext: state.includeWebContext,
     queueStatus: state.isProcessingQueue ? "queued" : "pending"
   });
   render({ preserveComposer: false, focusComposer: true });
@@ -3759,7 +3798,7 @@ async function callCodex() {
   state.messages.push({
     role: "assistant",
     text: response.ok
-      ? `Codex response: ${JSON.stringify(response.envelope?.payload || response)}`
+      ? getReadableAgentText(response.envelope?.payload?.text || response.envelope?.payload?.message || "Codex completed the request.")
       : `Codex call failed: ${response.error || "Unknown error."}`,
     variant: response.ok ? "" : "error",
     createdAt: Date.now()
@@ -3928,14 +3967,6 @@ async function processQueuedMessage(item) {
     }
   }
 
-  const memoryRequest = isSelectedProviderConnected() ? null : parseDirectMemoryRequest(text);
-  if (memoryRequest) {
-    const memoryItem = memoryRequest.synthesize
-      ? await synthesizeMemoryRequest(memoryRequest)
-      : memoryRequest;
-    proposeMemorySave(memoryItem, detectUserLanguage(text), memoryRequest.goal);
-    return;
-  }
   state.pendingMemoryIntent = parseDeferredMemoryIntent(text);
   maybeResetTaskMemoryForNewGoal(text);
   rememberTaskMemoryGoal(text, { source: "user_message" });
@@ -3945,6 +3976,7 @@ async function processQueuedMessage(item) {
   state.liveThinkingOpen = false;
   const agentResult = await getAgentResult(text, {
     planContext,
+    includeWebContext: Boolean(item?.includeWebContext),
     createdAt: item?.createdAt || Date.now()
   });
   if (state.liveThinking) {
@@ -4220,6 +4252,12 @@ function dismissPendingResume(resumeId) {
 }
 
 function handleRuntimeMessage(message) {
+  if (message?.type === MESSAGE_TYPES.CLAIMOS_SECURITY_STATUS) {
+    applyClaimosAnalysis(message.payload || {});
+    render();
+    return false;
+  }
+
   if (message?.type !== MESSAGE_TYPES.PROVIDER_PROGRESS) {
     return false;
   }
@@ -4245,6 +4283,76 @@ function handleRuntimeMessage(message) {
     render();
   }
   return false;
+}
+
+async function restoreClaimosAnalysis() {
+  const stored = await chrome.storage.session.get(null);
+  for (const [key, payload] of Object.entries(stored)) {
+    if (key.startsWith(CLAIMOS_ANALYSIS_KEY_PREFIX)) {
+      if (payload?.phase === "analyzing" && Date.now() - Number(payload.updatedAt || 0) > 120000) {
+        chrome.storage.session.remove(key);
+        continue;
+      }
+      applyClaimosAnalysis(payload);
+    }
+  }
+}
+
+function applyClaimosAnalysis(payload = {}) {
+  const eventId = String(payload.eventId || "");
+  if (!eventId || (payload.target?.windowId != null && payload.target.windowId !== state.sidebarContext.windowId)) return;
+  if (state.claimosEventPhases[eventId] === payload.phase) return;
+  state.claimosEventPhases[eventId] = payload.phase;
+
+  const messageId = `claimos:${eventId}`;
+  const existing = state.messages.find((message) => message.id === messageId);
+  const message = {
+    id: messageId,
+    role: "assistant",
+    text: formatClaimosChatMessage(payload),
+    variant: payload.report?.verdict === "DANGEROUS" || payload.phase === "failed" ? "error" : "",
+    createdAt: existing?.createdAt || Date.now()
+  };
+
+  if (existing) {
+    Object.assign(existing, message);
+  } else {
+    state.messages.push(message);
+  }
+  state.chatSessionStarted = true;
+  if (payload.phase !== "analyzing") {
+    chrome.storage.session.remove(`${CLAIMOS_ANALYSIS_KEY_PREFIX}${eventId}`);
+  }
+}
+
+function formatClaimosChatMessage(payload = {}) {
+  const context = payload.context || {};
+  if (payload.phase === "analyzing") {
+    return [
+      "### ClaimOS Guardian · Analyzing",
+      `Checking **${context.method || "wallet request"}** from ${context.provider || "the connected wallet"}${context.domain ? ` on **${context.domain}**` : ""}.`,
+      "The wallet request is paused while Codex analyzes it."
+    ].join("\n\n");
+  }
+
+  const report = payload.report || {};
+  const verdict = String(report.verdict || "WARNING").toUpperCase();
+  const reasons = (Array.isArray(report.reasons) ? report.reasons : [])
+    .slice(0, 5)
+    .map((reason) => {
+      if (typeof reason === "string") return `- ${reason}`;
+      const title = reason.title || reason.severity || "Finding";
+      const detail = reason.explanation || reason.reason || reason.description || "No details provided.";
+      return `- **${title}:** ${detail}`;
+    });
+  return [
+    `### ClaimOS Guardian · ${verdict}`,
+    report.summary || "Wallet analysis completed.",
+    `${context.method || "wallet request"} · ${context.provider || "unknown provider"}${context.domain ? ` · ${context.domain}` : ""}`,
+    report.actualAction ? `**Actual action:** ${report.actualAction}` : "",
+    reasons.length ? reasons.join("\n") : "",
+    `**Recommendation:** ${report.recommendation || "REVIEW"}`
+  ].filter(Boolean).join("\n\n");
 }
 
 async function stopCurrentProcessing() {
@@ -4920,20 +5028,21 @@ async function getAgentResult(goal, options = {}) {
   goal = expandAgentGoal(goal);
   const responseLanguage = detectUserLanguage(goal);
   const providerGoal = getProviderLoggedUserText(goal, options.createdAt);
-  const navigationPlan = buildNavigationPlan(goal, responseLanguage);
-
-  if (navigationPlan) {
-    addDebugLog("agent.local_navigation_plan", { goal, plan: navigationPlan }, navigationPlan.summary_for_user);
-    return navigationPlan;
+  if (state.codex.provider === "openai-codex") {
+    return requestWalletOsCodexChat(providerGoal, responseLanguage, options);
   }
 
   if (isSelectedProviderConnected()) {
-    const needsPageRecovery = !isSimpleConversationalMessage(goal);
-    let rawObservation = getObservationForContext(options.planContext);
-    if (!rawObservation && needsPageRecovery) {
+    let rawObservation = options.includeWebContext
+      ? getObservationForContext(options.planContext)
+      : null;
+    if (!rawObservation && options.includeWebContext) {
       rawObservation = await recoverObservationForProvider("read this page before sending the provider request", {
         planContext: options.planContext
       });
+      if (!rawObservation) {
+        state.activity.unshift("Page context unavailable; continuing with Codex without web context.");
+      }
     }
 
     const selectedHttpProvider = getSelectedHttpProvider();
@@ -4989,6 +5098,16 @@ async function getAgentResult(goal, options = {}) {
       linkReferences: getLinkReferencesForProvider(undefined, providerContextMode)
     };
     addDebugLog("provider.agent_request.start", payload, `${state.codex.provider} / ${state.codex.model}`);
+    state.liveThinking = {
+      requestId: "",
+      text: options.includeWebContext
+        ? "Codex is working with the available page context."
+        : "Codex is working on your message.",
+      streaming: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    refreshChatLog();
     const response = await requestSelectedProviderAgent(payload);
     addDebugLog("provider.agent_request.end", {
       ok: response.ok,
@@ -5065,10 +5184,6 @@ async function getAgentResult(goal, options = {}) {
     state.activity.unshift(`Provider request failed: ${response.error}`);
   }
 
-  if (isSimpleConversationalMessage(goal)) {
-    return buildSimpleConversationalResponse(goal, responseLanguage);
-  }
-
   if (!getObservationForContext(options.planContext)) {
     if (options.planContext) {
       await restoreExpectedTab(options.planContext);
@@ -5091,6 +5206,56 @@ async function getAgentResult(goal, options = {}) {
   }
 
   return buildLocalAgentResult(goal, responseLanguage);
+}
+
+async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
+  let observation = options.includeWebContext
+    ? getObservationForContext(options.planContext)
+    : null;
+
+  if (!observation && options.includeWebContext) {
+    observation = await recoverObservationForProvider("include this page in the Codex message", {
+      planContext: options.planContext
+    });
+    if (!observation) {
+      state.activity.unshift("Page context unavailable; continuing with Codex without web context.");
+    }
+  }
+
+  const payload = {
+    goal,
+    responseLanguage,
+    provider: "openai-codex",
+    model: state.codex.model,
+    conversationContext: getRecentConversationForProvider(goal),
+    observation
+  };
+
+  addDebugLog("walletos.codex_request.start", payload, `Codex / ${state.codex.model}`);
+  state.liveThinking = {
+    requestId: "",
+    text: observation
+      ? "Codex is working with the current page context."
+      : "Codex is working on your message.",
+    streaming: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  refreshChatLog();
+
+  const response = await requestSelectedProviderAgent(payload);
+  addDebugLog("walletos.codex_request.end", {
+    ok: response.ok,
+    error: response.error || "",
+    result: response.envelope?.payload || null
+  }, response.ok ? "Codex response received." : response.error);
+
+  return response.ok
+    ? response.envelope.payload
+    : {
+        type: "agent_error",
+        message: response.error || "WalletOS could not reach the local Codex service."
+      };
 }
 
 async function buildRuntimeContext(goal, options = {}) {
@@ -6662,43 +6827,6 @@ function trimExcerptBoundary(text, side) {
 
   const firstSpace = raw.indexOf(" ");
   return firstSpace >= 0 && firstSpace < raw.length * 0.2 ? raw.slice(firstSpace + 1).trim() : raw.trim();
-}
-
-function isSimpleConversationalMessage(goal) {
-  const text = normalizeKey(goal);
-  return /^(ciao|salve|hey|hello|hi|buongiorno|buonasera)$/.test(text)
-    || /^(funzioni|mi leggi|ci sei|are you there)$/.test(text)
-    || /^(chi sei|who are you)$/.test(text)
-    || /^(ciao|salve|hey|hello|hi|buongiorno|buonasera) (chi sei|who are you|funzioni|mi leggi|ci sei|are you there)$/.test(text);
-}
-
-function buildSimpleConversationalResponse(goal, responseLanguage) {
-  const text = normalizeKey(goal);
-
-  if (/\b(chi sei|who are you)\b/i.test(text)) {
-    return {
-      type: "natural_response",
-      text: responseLanguage === "it"
-        ? "Sono Browser Companion, un assistente locale per il browser. Posso leggere la pagina osservata, cercare online e proporre azioni sicure da confermare prima dell'esecuzione."
-        : "I am Browser Companion, a local browser assistant. I can read the observed page, search online, and propose safe browser actions for confirmation before execution."
-    };
-  }
-
-  if (/\b(funzioni|mi leggi|ci sei|are you there)\b/i.test(text)) {
-    return {
-      type: "natural_response",
-      text: responseLanguage === "it"
-        ? "Si, ti leggo. Dimmi cosa vuoi fare nella pagina corrente."
-        : "Yes, I can read you. Tell me what you want to do on the current page."
-    };
-  }
-
-  return {
-    type: "natural_response",
-    text: responseLanguage === "it"
-      ? "Ciao. Dimmi cosa vuoi fare nella pagina corrente."
-      : "Hi. Tell me what you want to do on the current page."
-  };
 }
 
 function buildDeterministicActionPlan(goal, responseLanguage) {
@@ -11424,38 +11552,28 @@ function summarizeSearchArtifact(artifact) {
   return [`Search results for "${artifact.query}"`, ...lines].join("\n\n");
 }
 
-async function restoreSession() {
-  const stored = await chrome.storage.local.get(["browserCompanionSession", "browserCompanionTheme", EXTERNAL_DEBUG_LOGS_KEY]);
-  const session = stored.browserCompanionSession;
-  const selectedProvider = state.codex.provider;
-  const selectedModel = state.codex.model;
+function resetChatSession() {
+  state.messages = [];
+  state.actionNotes = [];
+  state.recentActions = [];
+  state.accessibleTabs = {};
+  state.taskMemory = createEmptyTaskMemory();
+  state.sessionApprovals = [];
+  state.activity = [];
+  state.pendingResume = null;
+  state.pendingPlan = null;
+  state.pendingPlanContext = null;
+  state.pendingPolicy = null;
+  state.pendingPermissionRequest = null;
+  state.pendingMemoryProposal = null;
+  state.chatSessionStarted = false;
+}
+
+async function loadUiPreferences() {
+  const stored = await chrome.storage.local.get(["browserCompanionTheme", EXTERNAL_DEBUG_LOGS_KEY]);
+  await chrome.storage.local.remove("browserCompanionSession");
   state.theme = stored.browserCompanionTheme || "system";
   state.externalDebugLogs = normalizeDebugLogs(stored[EXTERNAL_DEBUG_LOGS_KEY] || []);
-
-  if (!session?.privacy?.persistSession) {
-    state.privacy.persistSession = true;
-    return;
-  }
-
-  state.privacy = session.privacy;
-  state.codex = {
-    provider: "openai-codex",
-    model: "gpt-5.5",
-    ...(session.codex || {})
-  };
-  state.codex.provider = selectedProvider;
-  state.codex.model = selectedModel;
-  state.attachments = session.attachments || [];
-  state.messages = session.messages || state.messages;
-  state.actionNotes = session.actionNotes || [];
-  state.recentActions = Array.isArray(session.recentActions) ? session.recentActions : [];
-  state.accessibleTabs = session.accessibleTabs || {};
-  state.taskMemory = normalizeTaskMemory(session.taskMemory);
-  state.sessionApprovals = Array.isArray(session.sessionApprovals) ? session.sessionApprovals : [];
-  state.activity = session.activity || [];
-  state.debugLogs = normalizeDebugLogs(session.debugLogs || []);
-  state.pendingMemoryProposal = session.pendingMemoryProposal || null;
-  state.pendingResume = normalizePendingResumeRequest(session.pendingResume);
 }
 
 async function restoreProviderSettings() {
@@ -11489,13 +11607,22 @@ async function restoreProviderSettings() {
     : [];
   state.codex = {
     ...state.codex,
-    ...(settings.selectedProvider ? { provider: settings.selectedProvider } : {}),
+    provider: "openai-codex",
     ...(settings.selectedModel ? { model: settings.selectedModel } : {})
   };
   state.connector.providers = normalizeProviderStatuses(state.connector.providers);
 }
 
 function handleStorageChange(changes, area) {
+  if (area === "session") {
+    for (const [key, change] of Object.entries(changes)) {
+      if (key.startsWith(CLAIMOS_ANALYSIS_KEY_PREFIX) && change.newValue) {
+        applyClaimosAnalysis(change.newValue);
+      }
+    }
+    render();
+    return;
+  }
   if (area !== "local") {
     return;
   }
@@ -11537,28 +11664,7 @@ async function persistDeepSearchRun(run) {
 }
 
 function persistSession() {
-  if (!state.privacy.persistSession) {
-    chrome.storage.local.remove("browserCompanionSession");
-    return;
-  }
-
-  chrome.storage.local.set({
-    browserCompanionSession: {
-      privacy: state.privacy,
-      codex: state.codex,
-      attachments: state.attachments,
-      messages: state.messages.slice(-30),
-      actionNotes: state.actionNotes.slice(-80),
-      recentActions: state.recentActions.slice(0, 24),
-      accessibleTabs: Object.fromEntries(Object.entries(state.accessibleTabs || {}).slice(0, 12)),
-      taskMemory: normalizeTaskMemory(state.taskMemory),
-      sessionApprovals: state.sessionApprovals.slice(-60),
-      activity: state.activity.slice(0, 80),
-      debugLogs: state.debugLogs.slice(0, 200),
-      pendingMemoryProposal: state.pendingMemoryProposal,
-      pendingResume: normalizePendingResumeRequest(state.pendingResume)
-    }
-  });
+  chrome.storage.local.remove("browserCompanionSession");
 }
 
 function clearAttachments() {
