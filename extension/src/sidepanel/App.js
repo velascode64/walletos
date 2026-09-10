@@ -328,29 +328,14 @@ function render(options = {}) {
         ${renderSettingsPanel()}
       </section>
     </section>
-
-    <section class="active-context" aria-label="Active context">
-      <div class="section-heading">
-        <span class="eyebrow">Active context</span>
-        <span class="monitoring-pill"><span class="pill-dot"></span>${escapeHtml(getMonitoringLabel())}</span>
+    <aside class="autonomous-guard" aria-label="Autonomous guard">
+      <div class="autonomous-guard-icon" aria-hidden="true">🛡️</div>
+      <div>
+        <span class="autonomous-guard-label">ALWAYS ON</span>
+        <strong>Autonomous Guard</strong>
+        <p>WalletOS makes your crypto wallets <b>smarter, safer, and easier to use with AI.</b></p>
       </div>
-      <div class="wallet-summary">
-        <span class="wallet-avatar" aria-hidden="true">≡</span>
-        <div class="wallet-summary-copy">
-          <strong>Wallet #1 (Main)</strong>
-          <span>${escapeHtml(getWalletLabel())}</span>
-        </div>
-        <div class="wallet-balance">
-          <strong>-- ETH</strong>
-          <span>Balance unavailable</span>
-        </div>
-      </div>
-      <div class="context-footer">
-        <span class="context-info-icon" aria-hidden="true">i</span>
-        <span>${escapeHtml(state.page.url ? `Observing ${getPageDomainLabel()} on the current tab.` : "Open a dApp to start contextual monitoring.")}</span>
-        <button id="observe-page" class="context-observe" type="button">${escapeHtml(getObserveButtonText())}</button>
-      </div>
-    </section>
+    </aside>
 
     ${state.chatSessionStarted ? "" : `<section class="suggested-actions" aria-labelledby="suggested-actions-title">
       <div class="section-heading">
@@ -358,23 +343,29 @@ function render(options = {}) {
       </div>
       <div class="action-grid">
         <button class="suggested-action" type="button" data-suggested-action="site">
-          <span><strong>Check this site</strong><small>Verify domain reputation</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-icon" aria-hidden="true">🌐</span>
+          <span class="suggested-action-copy"><strong>Check this site</strong><small>Verify domain reputation</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-powered"><small>Powered by</small><span class="partner-avatar partner-privy" title="Privy">P</span></span>
         </button>
         <button class="suggested-action" type="button" data-suggested-action="portfolio">
-          <span><strong>Analyze portfolio</strong><small>Token balances &amp; risk</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-icon" aria-hidden="true">◒</span>
+          <span class="suggested-action-copy"><strong>Analyze portfolio</strong><small>Token balances &amp; risk</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-powered"><small>Powered by</small><img src="${chrome.runtime.getURL("assets/logos/the-graph.png")}" alt="The Graph" title="The Graph"></span>
         </button>
         <button class="suggested-action" type="button" data-suggested-action="claims">
-          <span><strong>Find my claims</strong><small>Unclaimed airdrops &amp; rewards</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-icon" aria-hidden="true">✦</span>
+          <span class="suggested-action-copy"><strong>Find my claims</strong><small>Unclaimed airdrops &amp; rewards</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-powered"><small>Powered by</small><img src="${chrome.runtime.getURL("assets/logos/the-graph.png")}" alt="The Graph" title="The Graph"></span>
         </button>
         <button class="suggested-action" type="button" data-suggested-action="contract">
-          <span><strong>Inspect contract</strong><small>Simulate unknown targets</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-icon" aria-hidden="true">⌘</span>
+          <span class="suggested-action-copy"><strong>Inspect contract</strong><small>Simulate unknown targets</small></span><b aria-hidden="true">→</b>
+          <span class="suggested-action-powered"><small>Powered by</small><img src="${chrome.runtime.getURL("assets/logos/ledger-logo.jpg")}" alt="Ledger" title="Ledger"></span>
         </button>
       </div>
     </section>`}
 
-    <aside class="autonomous-guard" aria-label="Autonomous guard">
-      <strong>Autonomous Guard:</strong> WalletOS evaluates simulation logs, malicious permissions, and slippage before your wallet prompts you to sign.
-    </aside>
+
 
     ${state.pendingPlan ? renderActionPreview() : ""}
     ${state.pendingPermissionRequest ? renderPermissionRequestPreview() : ""}
@@ -1310,6 +1301,14 @@ function bindChatTimelineControls() {
   document.querySelectorAll("[data-dismiss-resume]").forEach((button) => {
     button.addEventListener("click", () => dismissPendingResume(button.dataset.dismissResume));
   });
+
+  document.querySelectorAll("[data-claimos-bypass]").forEach((button) => {
+    button.addEventListener("click", () => bypassClaimosAnalysis(button.dataset.claimosBypass));
+  });
+
+  document.querySelectorAll("[data-claimos-dismiss]").forEach((button) => {
+    button.addEventListener("click", () => dismissClaimosMessage(button.dataset.claimosDismiss));
+  });
 }
 
 function getActionNotePersistKey(note) {
@@ -1505,6 +1504,9 @@ function updateConfirmButtonState() {
 }
 
 function renderMessage(message) {
+  if (message.claimos) {
+    return renderClaimosCard(message);
+  }
   if (message.role === "assistant" && message.variant === "error") {
     return renderErrorNote(message);
   }
@@ -1524,6 +1526,43 @@ function renderMessage(message) {
       </div>
       ${renderMessageThinking(message)}
       ${renderMessageContent(message)}
+    </article>
+  `;
+}
+
+function renderClaimosCard(message) {
+  const payload = message.claimos || {};
+  const context = payload.context || {};
+  const report = payload.report || {};
+  const verdict = payload.phase === "analyzing"
+    ? "ANALYZING"
+    : String(report.verdict || "WARNING").toUpperCase();
+  const recommendation = String(report.recommendation || "REVIEW").toUpperCase();
+  const tone = verdict === "DANGEROUS" || recommendation === "DO_NOT_SIGN"
+    ? "dangerous"
+    : (verdict === "SAFE" && recommendation === "PROCEED" ? "safe" : "review");
+  const icon = verdict === "SAFE" ? "🛡️" : (verdict === "DANGEROUS" ? "🚨" : (verdict === "ANALYZING" ? "🔎" : "⚠️"));
+  const reasons = (Array.isArray(report.reasons) ? report.reasons : []).slice(0, 5).map((reason) => {
+    const title = typeof reason === "string" ? "Signal" : (reason.title || reason.severity || "Signal");
+    const detail = typeof reason === "string" ? reason : (reason.explanation || reason.reason || reason.description || "No details provided.");
+    return `<li><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></li>`;
+  }).join("");
+  const actions = payload.phase === "analyzing"
+    ? `<button class="claimos-bypass" type="button" data-claimos-bypass="${escapeHtml(payload.eventId)}" ${payload.bypassPending ? "disabled" : ""}>${payload.bypassPending ? "Continuing…" : "Skip analysis and continue to wallet"}</button>`
+    : `<button class="claimos-dismiss" type="button" data-claimos-dismiss="${escapeHtml(payload.eventId)}">Dismiss</button>`;
+
+  return `
+    <article class="claimos-card claimos-${tone}" data-chat-item-key="${escapeHtml(getMessageTimelineKey(message))}">
+      <header class="claimos-card-head">
+        <span class="claimos-icon" aria-hidden="true">${icon}</span>
+        <div><small>ClaimOS Guardian</small><strong>${escapeHtml(verdict)}</strong></div>
+      </header>
+      <p class="claimos-summary">${escapeHtml(payload.phase === "analyzing" ? "I’m checking what this wallet request really does. Hold tight." : (report.summary || "Analysis completed."))}</p>
+      <p class="claimos-meta">${escapeHtml(`${context.method || "wallet request"} · ${context.provider || "unknown provider"}${context.domain ? ` · ${context.domain}` : ""}`)}</p>
+      ${report.actualAction ? `<div class="claimos-action"><small>Actual action</small><span>${escapeHtml(report.actualAction)}</span></div>` : ""}
+      ${reasons ? `<ul class="claimos-reasons">${reasons}</ul>` : ""}
+      ${payload.phase === "analyzing" ? `<p class="claimos-paused">Wallet request paused while the guardian checks it.</p>` : `<div class="claimos-recommendation"><span>Recommendation</span><strong>${escapeHtml(report.recommendation || "REVIEW")}</strong></div>`}
+      <footer class="claimos-actions">${actions}</footer>
     </article>
   `;
 }
@@ -4310,6 +4349,7 @@ function applyClaimosAnalysis(payload = {}) {
     id: messageId,
     role: "assistant",
     text: formatClaimosChatMessage(payload),
+    claimos: payload,
     variant: payload.report?.verdict === "DANGEROUS" || payload.phase === "failed" ? "error" : "",
     createdAt: existing?.createdAt || Date.now()
   };
@@ -4323,6 +4363,37 @@ function applyClaimosAnalysis(payload = {}) {
   if (payload.phase !== "analyzing") {
     chrome.storage.session.remove(`${CLAIMOS_ANALYSIS_KEY_PREFIX}${eventId}`);
   }
+}
+
+async function bypassClaimosAnalysis(eventId) {
+  const message = state.messages.find((item) => item.id === `claimos:${eventId}`);
+  const payload = message?.claimos;
+  if (!payload || payload.bypassPending) return;
+  const context = payload.context || {};
+  const confirmed = window.confirm(`Skip ClaimOS analysis and continue this ${context.method || "wallet request"} to ${context.provider || "the wallet"}?\n\nThe wallet will still ask for your approval.`);
+  if (!confirmed) return;
+
+  payload.bypassPending = true;
+  render();
+  try {
+    const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.CLAIMOS_BYPASS_ANALYSIS, {
+      eventId,
+      tabId: payload.target?.tabId ?? null,
+      windowId: payload.target?.windowId ?? null
+    }));
+    if (!response.ok) throw new Error(response.error || "ClaimOS analysis could not be bypassed.");
+    state.activity.unshift("ClaimOS analysis skipped by the user; continuing to the wallet.");
+  } catch (error) {
+    payload.bypassPending = false;
+    state.activity.unshift(error.message || "ClaimOS analysis could not be bypassed.");
+    render();
+  }
+}
+
+function dismissClaimosMessage(eventId) {
+  state.messages = state.messages.filter((message) => message.id !== `claimos:${eventId}`);
+  delete state.claimosEventPhases[eventId];
+  render();
 }
 
 function formatClaimosChatMessage(payload = {}) {

@@ -33,8 +33,9 @@ pub fn run() {
     {
         app_builder = app_builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
                 let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
             }
         }));
     }
@@ -46,7 +47,10 @@ pub fn run() {
     {
         app_builder = app_builder.plugin(
             tauri_plugin_window_state::Builder::new()
-                .with_state_flags(tauri_plugin_window_state::StateFlags::all())
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
                 .with_denylist(&["quick-pane"])
                 .build(),
         );
@@ -111,6 +115,11 @@ pub fn run() {
 
             local_server::start();
 
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+            }
+
             // Set up global shortcut plugin (without any shortcuts - we register them separately)
             #[cfg(desktop)]
             {
@@ -163,7 +172,9 @@ pub fn run() {
 
                     // Save window state before hiding
                     use tauri_plugin_window_state::{AppHandleExt, StateFlags};
-                    if let Err(e) = app_handle.save_window_state(StateFlags::all()) {
+                    if let Err(e) =
+                        app_handle.save_window_state(StateFlags::all() - StateFlags::VISIBLE)
+                    {
                         log::warn!("Failed to save window state: {e}");
                     }
 
@@ -187,7 +198,7 @@ pub fn run() {
                         // The window-state plugin only auto-restores on app startup, not after
                         // a hide/show cycle. Without this the window can appear at stale coords.
                         use tauri_plugin_window_state::{StateFlags, WindowExt};
-                        let _ = window.restore_state(StateFlags::all());
+                        let _ = window.restore_state(StateFlags::all() - StateFlags::VISIBLE);
 
                         let _ = window.set_focus();
                         log::info!("Main window reopened from dock");
