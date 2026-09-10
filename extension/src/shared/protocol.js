@@ -24,7 +24,7 @@ export function createWalletOsConversationContext({ conversation = [], observati
 export function createClaimosChatEvent({ phase = "analyzing", context = {}, report = null } = {}) {
   return {
     eventId: context.eventId || report?.eventId || "",
-    phase: ["analyzing", "completed", "failed"].includes(phase) ? phase : "failed",
+    phase: ["analyzing", "completed", "failed", "bypassed"].includes(phase) ? phase : "failed",
     context: {
       method: context.rpc?.method || "wallet request",
       provider: context.provider || "unknown provider",

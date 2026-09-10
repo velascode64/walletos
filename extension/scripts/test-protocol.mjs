@@ -63,6 +63,9 @@ assert.deepEqual(createClaimosChatEvent({
   report: { verdict: "SAFE" }
 });
 
+assert.equal(createClaimosChatEvent({ phase: "bypassed" }).phase, "bypassed");
+assert.equal(createClaimosChatEvent({ phase: "invalid" }).phase, "failed");
+
 assert.deepEqual(createWalletOsConversationContext({
   observation: { tab: { url: "https://example.com" } }
 }).page, {

@@ -2,6 +2,7 @@
   const source = "CLAIMOS_GUARDIAN";
   const MAX_VISIBLE_TEXT = 12000;
   const MAX_ACTIONS = 100;
+  const pendingWalletRequests = new Map();
   const WEB3_KEYWORDS = [
     "claim",
     "airdrop",
@@ -21,6 +22,13 @@
   injectWalletInterceptor();
   console.log("[WalletOS] Content script loaded. Injecting wallet interceptor.");
   window.addEventListener("message", handleWalletRequest);
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== "claimos_bypass_analysis") return;
+    const requestId = pendingWalletRequests.get(message.eventId);
+    if (!requestId) return;
+    pendingWalletRequests.delete(message.eventId);
+    sendWalletDecision(requestId, true);
+  });
 
   function injectWalletInterceptor() {
     const script = document.createElement("script");
@@ -41,6 +49,7 @@
     const context = buildSecurityContext(event.data.payload || {});
     console.log("[WalletOS] GUARD ACTIVATED for wallet event:", context.rpc.method, context.eventId);
     console.log("[WalletOS] Wallet request captured. Sending SecurityContext to service worker:", context);
+    pendingWalletRequests.set(context.eventId, event.data.requestId);
 
     try {
       const response = await chrome.runtime.sendMessage({
@@ -49,11 +58,15 @@
       });
       console.log("[WalletOS] Security report received from walletos_app/Codex:", response);
       const report = response?.envelope?.payload || response?.report || response;
+      if (!pendingWalletRequests.has(context.eventId)) return;
+      pendingWalletRequests.delete(context.eventId);
       const verdict = String(report?.verdict || "").toUpperCase();
       const recommendation = String(report?.recommendation || "").toUpperCase();
       sendWalletDecision(event.data.requestId, verdict === "SAFE" && recommendation === "PROCEED");
     } catch (error) {
       console.warn("[WalletOS] ClaimOS/Codex analysis failed:", error);
+      if (!pendingWalletRequests.has(context.eventId)) return;
+      pendingWalletRequests.delete(context.eventId);
       sendWalletDecision(event.data.requestId, false);
     }
   }

@@ -36,6 +36,7 @@ export const MESSAGE_TYPES = Object.freeze({
   EXECUTE_ACTION_PLAN: "execute_action_plan",
   EXECUTION_RESULT: "execution_result",
   CLAIMOS_SECURITY_ANALYSIS: "claimos_security_analysis",
+  CLAIMOS_BYPASS_ANALYSIS: "claimos_bypass_analysis",
   CLAIMOS_SECURITY_STATUS: "claimos_security_status",
   CLAIMOS_SECURITY_REPORT: "claimos_security_report"
 });

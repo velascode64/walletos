@@ -16,6 +16,7 @@ let nativePort = null;
 let nativePortSequence = 1;
 const nativePortPending = new Map();
 let activeNativeRequestId = null;
+const activeClaimosRequests = new Map();
 const AUTO_OBSERVE_OPENED_TAB_LIMIT = 3;
 const CLAIMOS_ANALYSIS_KEY_PREFIX = "walletosClaimosAnalysis:";
 
@@ -186,6 +187,10 @@ async function handleMessage(message, sender) {
     return requestClaimosSecurityAnalysis(message.payload, sender);
   }
 
+  if (message?.type === MESSAGE_TYPES.CLAIMOS_BYPASS_ANALYSIS) {
+    return bypassClaimosAnalysis(message.payload, sender);
+  }
+
   return {
     ok: false,
     error: `Unsupported message type: ${message?.type || "missing"}`
@@ -255,6 +260,15 @@ async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
     method: payload.rpc?.method,
     domain: payload.page?.domain
   });
+  const controller = new AbortController();
+  const activeRequest = {
+    controller,
+    bypassed: false,
+    context: payload,
+    tabId: sender.tab?.id ?? null,
+    windowId: sender.tab?.windowId ?? null
+  };
+  activeClaimosRequests.set(payload.eventId, activeRequest);
   openClaimosPanel(sender);
   await publishClaimosStatus(createClaimosChatEvent({
     phase: "analyzing",
@@ -283,7 +297,6 @@ async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
       },
       skills: ["claimos-security"]
     });
-    const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 115000);
     const response = await fetch("http://127.0.0.1:48745/codex", {
       method: "POST",
@@ -299,6 +312,15 @@ async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
     console.log("[WalletOS] Codex security analysis received:", normalized);
     report = normalized.report || normalized;
   } catch (error) {
+    if (activeRequest.bypassed) {
+      return {
+        ok: true,
+        envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, {
+          verdict: "BYPASSED",
+          recommendation: "PROCEED"
+        })
+      };
+    }
     analysisFailed = true;
     console.warn("[WalletOS] walletos_app HTTP/Codex unavailable:", error);
     report = {
@@ -316,15 +338,51 @@ async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
     };
   }
 
+  try {
+    await publishClaimosStatus(createClaimosChatEvent({
+      phase: analysisFailed ? "failed" : "completed",
+      context: payload,
+      report
+    }), sender);
+    return {
+      ok: true,
+      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, report)
+    };
+  } finally {
+    if (activeClaimosRequests.get(payload.eventId) === activeRequest) {
+      activeClaimosRequests.delete(payload.eventId);
+    }
+  }
+}
+
+async function bypassClaimosAnalysis(payload = {}, sender = {}) {
+  const sidePanelUrl = chrome.runtime.getURL("src/sidepanel/index.html");
+  if (String(sender.url || "").split("?")[0] !== sidePanelUrl) {
+    return { ok: false, error: "ClaimOS bypass is only available from the WalletOS side panel." };
+  }
+  const eventId = String(payload.eventId || "");
+  const activeRequest = activeClaimosRequests.get(eventId);
+  if (!activeRequest || payload.windowId !== activeRequest.windowId || payload.tabId !== activeRequest.tabId) {
+    return { ok: false, error: "This ClaimOS analysis is no longer active." };
+  }
+
+  if (activeRequest.tabId != null) {
+    await chrome.tabs.sendMessage(activeRequest.tabId, {
+      type: MESSAGE_TYPES.CLAIMOS_BYPASS_ANALYSIS,
+      eventId
+    });
+  }
+  activeRequest.bypassed = true;
+  activeRequest.controller.abort();
+  activeClaimosRequests.delete(eventId);
   await publishClaimosStatus(createClaimosChatEvent({
-    phase: analysisFailed ? "failed" : "completed",
-    context: payload,
-    report
-  }), sender);
-  return {
-    ok: true,
-    envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, report)
-  };
+    phase: "bypassed",
+    context: activeRequest.context,
+    report: { verdict: "BYPASSED", recommendation: "PROCEED" }
+  }), {
+    tab: { id: activeRequest.tabId, windowId: activeRequest.windowId }
+  });
+  return { ok: true };
 }
 
 async function publishClaimosStatus(payload, sender = {}) {
