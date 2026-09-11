@@ -837,6 +837,63 @@ h2 {
   font-weight: 700;
 }
 
+.portfolio-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--panel);
+}
+
+.portfolio-table-wrap {
+  overflow-x: auto;
+}
+
+.portfolio-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.portfolio-table th,
+.portfolio-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.portfolio-table th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.portfolio-reason,
+.portfolio-approval-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.portfolio-missing {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.portfolio-missing ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.portfolio-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .message-body p,
 .message-body ul,
 .message-body ol,

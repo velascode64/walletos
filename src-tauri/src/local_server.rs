@@ -6,6 +6,7 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::Path,
+    process::Command,
     thread,
 };
 
@@ -210,9 +211,20 @@ fn run_codex(body: &str) -> Value {
     let is_security_task = task.task_type == "transaction_review";
     let installed_skills = discover_skills(&task.skills);
     let runtime_instructions = load_runtime_instructions();
+    let mut task_context = task.context.clone();
+    if task.task_type == "portfolio_analysis" {
+        let Some(portfolio_facts) = run_portfolio_intelligence(&task_context) else {
+            return error_response(
+                "Portfolio intelligence could not produce verified facts.".to_string(),
+            );
+        };
+        if let Some(context) = task_context.as_object_mut() {
+            context.insert("portfolio_facts".to_string(), portfolio_facts);
+        }
+    }
     let installed_skills_json =
         serde_json::to_string_pretty(&installed_skills).unwrap_or_else(|_| "[]".to_string());
-    let task_context_json = serde_json::to_string_pretty(&task.context).unwrap_or_default();
+    let task_context_json = serde_json::to_string_pretty(&task_context).unwrap_or_default();
     log::info!("WalletOS local server running codex exec for model {model}");
     let prompt = if is_security_task {
         format!(
@@ -324,6 +336,28 @@ fn run_codex(body: &str) -> Value {
         .map(|value| value.to_string())
         .unwrap_or_else(|| text.clone());
     json!({ "ok": true, "protocolVersion": task.protocol_version, "taskId": task.task_id, "status": "completed", "type": response_type, "message": final_text, "text": final_text, "result": parsed, "actions": [] })
+}
+
+fn run_portfolio_intelligence(context: &Value) -> Option<Value> {
+    let wallets = context.get("wallets")?.clone();
+    let root = workspace_root();
+    let script = root.join("packages/portfolio-intelligence/bin/walletos-portfolio.mjs");
+    let output = Command::new("node")
+        .arg(script)
+        .current_dir(&root)
+        .env("WALLETOS_WALLETS", wallets.to_string())
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let facts = stdout
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())?;
+    if !output.status.success() || facts.get("status").and_then(Value::as_str) == Some("failed") {
+        log::warn!("Portfolio intelligence returned incomplete facts; refusing to run analysis");
+        return None;
+    }
+    Some(facts)
 }
 
 fn summarize_agent_error(error: &str) -> String {

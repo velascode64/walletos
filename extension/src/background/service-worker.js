@@ -202,16 +202,104 @@ async function handleMessage(message, sender) {
 }
 
 async function syncWallets(context = {}) {
-  const tab = await resolveExecutionContextTab(context);
+  console.log("[WalletOS sync] Service worker received sync request:", context);
+  const tab = await resolveWalletSyncTab(context);
+  console.log("[WalletOS sync] Resolved tab:", tab ? { id: tab.id, url: tab.url, windowId: tab.windowId } : null);
   if (!tab?.id) {
-    return { ok: false, error: "No active tab is available to sync wallets." };
+    return { ok: false, error: "Open your dApp in a normal http(s) tab, then click Connect MetaMask." };
   }
 
-  const response = await chrome.tabs.sendMessage(tab.id, { type: "walletos_sync_wallets" });
-  return {
-    ok: true,
-    wallets: Array.isArray(response?.wallets) ? response.wallets : []
-  };
+  try {
+    const [{ result: directWallets }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: async (requestAccess) => {
+        const providers = [
+          window.ethereum,
+          ...(Array.isArray(window.ethereum?.providers) ? window.ethereum.providers : [])
+        ].filter(Boolean);
+        const wallets = [];
+        for (const provider of providers) {
+          try {
+            window.__walletosSyncInProgress = true;
+            const accounts = await provider.request({ method: requestAccess ? "eth_requestAccounts" : "eth_accounts" });
+            const chainId = await provider.request({ method: "eth_chainId" });
+            for (const address of Array.isArray(accounts) ? accounts : []) {
+              if (address) {
+                wallets.push({
+                  address,
+                  chainId: chainId || provider.chainId || "",
+                  source: provider.isMetaMask ? "MetaMask" : (provider.info?.name || "browser wallet")
+                });
+              }
+            }
+          } catch (error) {
+            console.warn("[WalletOS sync] MAIN world provider request failed:", error);
+          } finally {
+            window.__walletosSyncInProgress = false;
+          }
+        }
+        return [...new Map(wallets.map((wallet) => [`${wallet.address}:${wallet.chainId}`, wallet])).values()];
+      },
+      args: [context.requestAccess === true]
+    });
+    console.log("[WalletOS sync] MAIN world wallet response:", directWallets || []);
+    if (Array.isArray(directWallets) && directWallets.length) {
+      return { ok: true, wallets: directWallets };
+    }
+
+    let response;
+    try {
+      console.log("[WalletOS sync] Sending wallet sync message to existing content script.");
+      response = await chrome.tabs.sendMessage(tab.id, {
+        type: "walletos_sync_wallets",
+        requestAccess: context.requestAccess === true
+      });
+    } catch (error) {
+      console.warn("[WalletOS sync] Existing content script unavailable; injecting it:", error);
+      if (!isInjectableTab(tab)) {
+        return { ok: false, error: "This tab does not allow wallet access. Open a normal http(s) dApp tab and try again." };
+      }
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["src/claimos/content-script.js"]
+      });
+      console.log("[WalletOS sync] Content script injected; retrying sync message.");
+      response = await chrome.tabs.sendMessage(tab.id, {
+        type: "walletos_sync_wallets",
+        requestAccess: context.requestAccess === true
+      });
+    }
+    console.log("[WalletOS sync] Content script response:", response);
+    return {
+      ok: true,
+      wallets: Array.isArray(response?.wallets) ? response.wallets : []
+    };
+  } catch (error) {
+    console.error("[WalletOS sync] Sync failed:", error);
+    return {
+      ok: false,
+      error: `Could not reach the wallet interceptor on this tab: ${error.message || "reload the dApp and try again"}`
+    };
+  }
+}
+
+async function resolveWalletSyncTab(context = {}) {
+  const exactTab = await resolveExecutionContextTab(context);
+  if (isInjectableTab(exactTab)) {
+    return exactTab;
+  }
+
+  const tabs = await chrome.tabs.query({
+    windowId: context.windowId,
+    windowType: "normal"
+  }).catch(() => []);
+  const injectableTabs = tabs.filter(isInjectableTab);
+  return injectableTabs.find((tab) => tab.active) || injectableTabs[0] || null;
+}
+
+function isInjectableTab(tab) {
+  return /^https?:\/\//i.test(String(tab?.url || ""));
 }
 
 async function observeActiveTab(context = null) {
@@ -272,6 +360,20 @@ async function checkNativeHealth() {
 }
 
 async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
+  if (payload.rpc?.method === "eth_requestAccounts") {
+    console.log("[WalletOS] Allowing wallet connection without ClaimOS analysis.");
+    return {
+      ok: true,
+      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, {
+        verdict: "SAFE",
+        recommendation: "PROCEED",
+        summary: "Wallet connection request allowed.",
+        actualAction: "The site is requesting the connected wallet address; no transaction or signature is involved.",
+        reasons: []
+      })
+    };
+  }
+
   console.log("[WalletOS] Sending wallet event to walletos_app HTTP/Codex:", {
     eventId: payload.eventId,
     method: payload.rpc?.method,
@@ -587,7 +689,7 @@ async function requestWalletOsAppAgent(payload = {}) {
       agent: payload.agent || (provider === "github-copilot-cli"
         ? "copilot"
         : (provider === "google-gemini-cli" ? "gemini" : "codex")),
-      type: "conversation",
+      type: payload.taskType || "conversation",
       intent,
       context: createWalletOsConversationContext({
         conversation: payload.conversationContext || payload.messages || [],

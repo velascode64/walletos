@@ -45,6 +45,7 @@ export function normalizeWalletOsResponse(response = {}, taskId = "") {
     status: response.status || (response.ok === false ? "failed" : "completed"),
     message,
     text: response.text || message,
+    ...(response.result === undefined ? {} : { result: response.result }),
     report: response.report,
     actions: filterWalletActions(response.actions),
     error: response.error || (response.status === "failed" ? response.message : undefined)

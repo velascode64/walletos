@@ -31,16 +31,24 @@
   });
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type !== "walletos_sync_wallets") return;
+    console.log("[WalletOS sync] Content script received sync request:", message);
     const requestId = `sync_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const listener = (event) => {
       if (event.source !== window || event.data?.source !== source || event.data?.type !== "WALLET_CONTEXT_RESPONSE" || event.data.requestId !== requestId) {
         return;
       }
       window.removeEventListener("message", listener);
+      console.log("[WalletOS sync] Received wallet context from page interceptor:", event.data.wallets || []);
       sendResponse({ wallets: event.data.wallets || [] });
     };
     window.addEventListener("message", listener);
-    window.postMessage({ source, type: "WALLET_CONTEXT_REQUEST", requestId }, window.location.origin);
+    console.log("[WalletOS sync] Requesting wallet context from page interceptor:", requestId);
+    window.postMessage({
+      source,
+      type: "WALLET_CONTEXT_REQUEST",
+      requestId,
+      requestAccess: message.requestAccess === true
+    }, window.location.origin);
     return true;
   });
 
