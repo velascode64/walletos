@@ -1,0 +1,13 @@
+{
+  "name": "portfolio-intelligence",
+  "version": "0.1.0",
+  "entrypoint": "./bin/walletos-portfolio.mjs",
+  "capabilities": [
+    "wallet.balances.inspect",
+    "wallet.transfers.inspect",
+    "wallet.portfolio.facts"
+  ],
+  "requires": {
+    "env": ["ALCHEMY_API_KEY"]
+  }
+}

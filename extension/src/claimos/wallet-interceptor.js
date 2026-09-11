@@ -14,6 +14,11 @@
   const pendingRequests = new Map();
 
   window.addEventListener("message", (event) => {
+    if (event.source === window && event.data?.source === source && event.data?.type === "WALLET_CONTEXT_REQUEST") {
+      syncWalletContext(event.data.requestId);
+      return;
+    }
+
     if (event.source !== window || event.data?.source !== source || event.data?.type !== "WALLET_DECISION") {
       return;
     }
@@ -26,6 +31,24 @@
     pendingRequests.delete(event.data.requestId);
     pending.resolve(event.data.allow === true);
   });
+
+  async function syncWalletContext(requestId) {
+    const wallets = [];
+    const providers = [window.ethereum, ...(Array.isArray(window.ethereum?.providers) ? window.ethereum.providers : [])].filter(Boolean);
+    for (const provider of providers) {
+      try {
+        const accounts = await provider.request({ method: "eth_accounts" });
+        const chainId = await provider.request({ method: "eth_chainId" });
+        for (const address of Array.isArray(accounts) ? accounts : []) {
+          if (address) wallets.push({ address, chainId: chainId || provider.chainId || "", source: getProviderName(provider) });
+        }
+      } catch (error) {
+        console.warn("[WalletOS] Could not sync wallet context:", error);
+      }
+    }
+    const unique = [...new Map(wallets.map((wallet) => [`${wallet.address}:${wallet.chainId}`, wallet])).values()];
+    window.postMessage({ source, type: "WALLET_CONTEXT_RESPONSE", requestId, wallets: unique }, window.location.origin);
+  }
 
   function patchProvider(provider) {
     if (!provider?.request || patchedProviders.has(provider)) {

@@ -2,22 +2,24 @@ import { filterWalletActions } from "./action-protocol.js";
 
 export const WALLETOS_PROTOCOL_VERSION = 1;
 
-export function createWalletOsTask({ type, intent, context = {}, skills = [], taskId } = {}) {
+export function createWalletOsTask({ type, intent, context = {}, skills = [], taskId, agent = "codex" } = {}) {
   return {
     protocolVersion: WALLETOS_PROTOCOL_VERSION,
     taskId: taskId || `task_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     type: type || "conversation",
+    agent,
     intent: intent || "",
     context,
     skills
   };
 }
 
-export function createWalletOsConversationContext({ conversation = [], observation = null, wallet = null } = {}) {
+export function createWalletOsConversationContext({ conversation = [], observation = null, wallet = null, wallets = [] } = {}) {
   return {
     conversation: Array.isArray(conversation) ? conversation : [],
     page: observation || null,
-    wallet: wallet || null
+    wallet: wallet || null,
+    wallets: Array.isArray(wallets) ? wallets : []
   };
 }
 

@@ -29,6 +29,20 @@
     pendingWalletRequests.delete(message.eventId);
     sendWalletDecision(requestId, true);
   });
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== "walletos_sync_wallets") return;
+    const requestId = `sync_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const listener = (event) => {
+      if (event.source !== window || event.data?.source !== source || event.data?.type !== "WALLET_CONTEXT_RESPONSE" || event.data.requestId !== requestId) {
+        return;
+      }
+      window.removeEventListener("message", listener);
+      sendResponse({ wallets: event.data.wallets || [] });
+    };
+    window.addEventListener("message", listener);
+    window.postMessage({ source, type: "WALLET_CONTEXT_REQUEST", requestId }, window.location.origin);
+    return true;
+  });
 
   function injectWalletInterceptor() {
     const script = document.createElement("script");

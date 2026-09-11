@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-app",
+  "productName": "WalletOS",
   "version": "0.1.0",
   "identifier": "com.tauri-app.app",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "tauri-app",
+        "title": "WalletOS",
         "width": 1200,
         "height": 800,
         "minWidth": 1000,

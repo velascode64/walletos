@@ -94,7 +94,8 @@ export function MainWindowContent({
         <div className="about-kicker">Hackathon build · 2026</div>
         <h1 id="about-title">WalletOS</h1>
         <p className="about-copy">
-          An open wallet operating system for autonomous, observable crypto workflows.
+          WalletOS an open OS for crypto wallets makes your crypto autonomous workflows{' '}
+          <b>smarter, safer, and easier to use with AI.</b>
         </p>
         <div className="about-status">
           <CircleCheck size={15} strokeWidth={2.5} />

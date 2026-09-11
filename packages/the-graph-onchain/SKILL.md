@@ -1,3 +1,9 @@
+---
+name: the-graph-onchain
+description: Use The Graph Subgraph MCP to inspect wallets, positions, protocols, and cross-wallet activity.
+version: 0.1.0
+---
+
 # The Graph Onchain Intelligence
 
 Use this skill for wallet, protocol, position, liquidity, activity, and
@@ -16,6 +22,24 @@ Before creating any execution plan:
    wallet activity relevant to the user's request.
 5. Combine results across wallets and chains.
 6. Only then reason about available capital and create an execution plan.
+
+## Portfolio output contract
+
+For `portfolio_analysis`, return one valid JSON object only. Keep tool calls,
+internal reasoning, and MCP errors out of the final JSON. Include:
+
+- `summary_for_user`: a short plain-language explanation of what was found and
+   why a rebalance is or is not recommended.
+- `evidence`: wallets, chains, subgraphs, positions, activity, and missing data.
+- `analysis`: current allocation, risks, and the reason for the recommendation.
+- `rebalance`: status, target allocations, steps, network, and whether approval
+   is required.
+- `execution`: use `proposal_only` and an empty `actions` array until WalletOS
+   independently resolves a quote, contracts, amounts, chain, slippage, and
+   token approvals.
+
+Never invent balances or transaction calldata. A portfolio explanation is not
+an executable wallet request.
 
 ## MCP usage
 
