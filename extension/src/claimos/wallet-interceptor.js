@@ -1,7 +1,6 @@
 (() => {
   const source = "CLAIMOS_GUARDIAN";
   const watchedMethods = new Set([
-    "eth_requestAccounts",
     "eth_sendTransaction",
     "eth_sign",
     "personal_sign",
@@ -15,7 +14,8 @@
 
   window.addEventListener("message", (event) => {
     if (event.source === window && event.data?.source === source && event.data?.type === "WALLET_CONTEXT_REQUEST") {
-      syncWalletContext(event.data.requestId);
+      console.log("[WalletOS sync] Page interceptor received wallet context request:", event.data);
+      syncWalletContext(event.data.requestId, event.data.requestAccess === true);
       return;
     }
 
@@ -32,26 +32,36 @@
     pending.resolve(event.data.allow === true);
   });
 
-  async function syncWalletContext(requestId) {
+  async function syncWalletContext(requestId, requestAccess = false) {
     const wallets = [];
     const providers = [window.ethereum, ...(Array.isArray(window.ethereum?.providers) ? window.ethereum.providers : [])].filter(Boolean);
-    for (const provider of providers) {
-      try {
-        const accounts = await provider.request({ method: "eth_accounts" });
-        const chainId = await provider.request({ method: "eth_chainId" });
-        for (const address of Array.isArray(accounts) ? accounts : []) {
-          if (address) wallets.push({ address, chainId: chainId || provider.chainId || "", source: getProviderName(provider) });
+    console.log("[WalletOS sync] Providers found:", providers.length, "requestAccess:", requestAccess);
+    window.__walletosSyncInProgress = true;
+    try {
+      for (const provider of providers) {
+        try {
+          const method = requestAccess ? "eth_requestAccounts" : "eth_accounts";
+          console.log("[WalletOS sync] Requesting", method, "from provider:", getProviderName(provider));
+          const accounts = await provider.request({ method });
+          const chainId = await provider.request({ method: "eth_chainId" });
+          console.log("[WalletOS sync] Provider returned:", { provider: getProviderName(provider), accounts, chainId });
+          for (const address of Array.isArray(accounts) ? accounts : []) {
+            if (address) wallets.push({ address, chainId: chainId || provider.chainId || "", source: getProviderName(provider) });
+          }
+        } catch (error) {
+          console.warn("[WalletOS sync] Could not sync wallet context:", error);
         }
-      } catch (error) {
-        console.warn("[WalletOS] Could not sync wallet context:", error);
       }
+    } finally {
+      window.__walletosSyncInProgress = false;
     }
     const unique = [...new Map(wallets.map((wallet) => [`${wallet.address}:${wallet.chainId}`, wallet])).values()];
+    console.log("[WalletOS sync] Returning wallets:", unique);
     window.postMessage({ source, type: "WALLET_CONTEXT_RESPONSE", requestId, wallets: unique }, window.location.origin);
   }
 
   function patchProvider(provider) {
-    if (!provider?.request || patchedProviders.has(provider)) {
+    if (!provider?.request || patchedProviders.has(provider) || provider.__claimosGuardianPatched) {
       return false;
     }
 
@@ -67,7 +77,7 @@
 
     provider.request = function claimosObservedRequest(args) {
       const method = String(args?.method || "");
-      if (watchedMethods.has(method)) {
+      if (watchedMethods.has(method) && !window.__walletosSyncInProgress) {
         const requestId = `wallet_${Date.now()}_${Math.random().toString(16).slice(2)}`;
         console.log("[WalletOS] WALLET EVENT DETECTED:", method, providerName, args);
         const decision = new Promise((resolve) => {

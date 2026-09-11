@@ -114,8 +114,14 @@ const state = {
     windowId: null,
     tabId: null
   },
-  wallets: [],
-  selectedWalletKey: "",
+  wallets: [
+    {
+      address: "0xdC4016Be8704b6c4868884f7eEd770d2eE44F442",
+      chainId: "0x1",
+      source: "MetaMask"
+    }
+  ],
+  selectedWalletKey: "0xdC4016Be8704b6c4868884f7eEd770d2eE44F442:0x1",
   attachments: [],
   messages: [
     {
@@ -703,7 +709,7 @@ function getSelectedWallet() {
 
 function renderWalletSelector() {
   if (!state.wallets.length) {
-    return `<button id="sync-wallets" class="wallet-chip wallet-sync" type="button" title="Sync wallets">Sync wallets</button>`;
+    return `<button id="sync-wallets" class="wallet-chip wallet-sync" type="button" title="Connect MetaMask">Connect MetaMask</button>`;
   }
 
   const options = state.wallets.map((wallet) => {
@@ -716,8 +722,14 @@ function renderWalletSelector() {
 }
 
 async function syncWalletContext() {
+  console.log("[WalletOS sync] Connect MetaMask clicked.");
   const tab = await getCurrentActiveTab();
-  const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.SYNC_WALLETS, tab ? { tabId: tab.id, windowId: tab.windowId } : {}));
+  console.log("[WalletOS sync] Active tab:", tab ? { id: tab.id, url: tab.url, windowId: tab.windowId } : null);
+  const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.SYNC_WALLETS, {
+    ...(tab ? { tabId: tab.id, windowId: tab.windowId } : {}),
+    requestAccess: true
+  }));
+  console.log("[WalletOS sync] Service worker response:", response);
   if (!response?.ok) {
     state.activity.unshift(response?.error || "Wallet sync failed.");
     render();
@@ -1583,6 +1595,9 @@ function renderMessage(message) {
   if (message.claimos) {
     return renderClaimosCard(message);
   }
+  if (message.portfolio) {
+    return renderPortfolioCard(message);
+  }
   if (message.role === "assistant" && message.variant === "error") {
     return renderErrorNote(message);
   }
@@ -1602,6 +1617,46 @@ function renderMessage(message) {
       </div>
       ${renderMessageThinking(message)}
       ${renderMessageContent(message)}
+    </article>
+  `;
+}
+
+function renderPortfolioCard(message) {
+  const report = message.portfolio || {};
+  const evidence = report.evidence || {};
+  const balances = Array.isArray(evidence.positions) ? evidence.positions : [];
+  const missing = Array.isArray(evidence.missing_data) ? evidence.missing_data : [];
+  const rebalance = report.rebalance || {};
+  const execution = report.execution || {};
+  const canReviewExecution = rebalance.status === "proposal"
+    && Array.isArray(execution.actions)
+    && execution.actions.length > 0;
+  const rows = balances.length
+    ? balances.map((item) => `
+        <tr>
+          <td>${escapeHtml(item.asset || item.symbol || item.tokenAddress || "Asset")}</td>
+          <td>${escapeHtml(item.balanceApprox || item.balanceRaw || "Detected")}</td>
+          <td>${escapeHtml(item.usdValue || "Unknown")}</td>
+        </tr>
+      `).join("")
+    : `<tr><td colspan="3">No priced balances were available.</td></tr>`;
+  const missingBlock = missing.length
+    ? `<details class="portfolio-missing"><summary>Data still missing (${missing.length})</summary><ul>${missing.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`
+    : "";
+  const action = canReviewExecution
+    ? `<button type="button" class="primary-action" data-portfolio-approve="${escapeHtml(String(message.createdAt))}">Review transactions in wallet</button>`
+    : `<p class="portfolio-approval-note">No executable transactions were generated. Wallet approval is not requested.</p>`;
+
+  return `
+    <article class="message assistant portfolio-card" data-chat-item-key="${escapeHtml(getMessageTimelineKey(message))}">
+      <div class="message-head"><span>Portfolio analysis</span><span class="message-status">${escapeHtml(rebalance.status === "proposal" ? "Proposal" : "Facts only")}</span></div>
+      <div class="message-body"><p>${renderRichText(String(report.summary_for_user || "Portfolio facts received."), { allowMermaid: false })}</p></div>
+      <div class="portfolio-table-wrap">
+        <table class="portfolio-table"><thead><tr><th>Asset</th><th>Balance</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>
+      </div>
+      ${report.analysis?.rebalance_reason ? `<p class="portfolio-reason"><strong>Why:</strong> ${escapeHtml(report.analysis.rebalance_reason)}</p>` : ""}
+      ${missingBlock}
+      <footer class="portfolio-actions">${action}</footer>
     </article>
   `;
 }
@@ -4435,6 +4490,13 @@ async function restoreClaimosAnalysis() {
 }
 
 function applyClaimosAnalysis(payload = {}) {
+  if (payload.context?.method === "eth_requestAccounts") {
+    if (payload.eventId) {
+      chrome.storage.session.remove(`${CLAIMOS_ANALYSIS_KEY_PREFIX}${payload.eventId}`);
+      state.messages = state.messages.filter((message) => message.id !== `claimos:${payload.eventId}`);
+    }
+    return;
+  }
   const eventId = String(payload.eventId || "");
   if (!eventId || (payload.target?.windowId != null && payload.target.windowId !== state.sidebarContext.windowId)) return;
   if (state.claimosEventPhases[eventId] === payload.phase) return;
@@ -5394,6 +5456,9 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
 
   const payload = {
     goal,
+    taskType: /\bportfolio\b|\brebalance\b|\bwallet balances\b/i.test(goal)
+      ? "portfolio_analysis"
+      : "conversation",
     responseLanguage,
     provider: COPILOT_CLI_PROVIDER_ID,
     model: state.codex.model,
@@ -7015,6 +7080,18 @@ async function handleAgentResult(result, options = {}) {
   result = normalizeAgentControlFlow(result);
   addDebugLog("agent.result", { result }, result?.type || "unknown result");
 
+  if (result?.type === "portfolio_analysis") {
+    state.messages.push({
+      role: "assistant",
+      text: result.summary_for_user || "Portfolio analysis completed.",
+      portfolio: result,
+      createdAt: Date.now()
+    });
+    state.activity.unshift("Portfolio facts analyzed. No wallet transaction was signed.");
+    render();
+    return;
+  }
+
   if (result?.type === "agent_plan") {
     const resolvedPlan = resolvePlanLinkReferences(result);
     if (resolvedPlan.unresolved.length) {
@@ -7478,7 +7555,7 @@ function decodePlannerDraftString(value) {
 }
 
 function normalizeEmbeddedAgentPayload(structured, wrapper = {}) {
-  const type = ["natural_response", "ask_user", "stop_for_human", "memory_proposal", "agent_plan"].includes(structured?.type)
+  const type = ["natural_response", "portfolio_analysis", "ask_user", "stop_for_human", "memory_proposal", "agent_plan"].includes(structured?.type)
     ? structured.type
     : (Array.isArray(structured?.actions) && structured.actions.length ? "agent_plan" : "natural_response");
 
@@ -7495,6 +7572,10 @@ function normalizeEmbeddedAgentPayload(structured, wrapper = {}) {
     will_submit: Boolean(structured?.will_submit),
     actions: Array.isArray(structured?.actions) ? structured.actions : [],
     uncertain_fields: Array.isArray(structured?.uncertain_fields) ? structured.uncertain_fields : [],
+    ...(structured?.evidence ? { evidence: structured.evidence } : {}),
+    ...(structured?.analysis ? { analysis: structured.analysis } : {}),
+    ...(structured?.rebalance ? { rebalance: structured.rebalance } : {}),
+    ...(structured?.execution ? { execution: structured.execution } : {}),
     ...(structured?.memory_title ? { memory_title: String(structured.memory_title) } : {}),
     ...(structured?.memory_content ? { memory_content: String(structured.memory_content) } : {})
   };
@@ -9873,7 +9954,7 @@ function unwrapStructuredAgentPayload(parsed) {
     return parsed;
   }
 
-  const wrappedKeys = ["agent_plan", "natural_response", "ask_user", "stop_for_human", "memory_proposal"];
+  const wrappedKeys = ["agent_plan", "natural_response", "portfolio_analysis", "ask_user", "stop_for_human", "memory_proposal"];
   for (const key of wrappedKeys) {
     const nested = parsed[key];
     if (!nested || typeof nested !== "object") {
@@ -9893,7 +9974,7 @@ function unwrapStructuredAgentPayload(parsed) {
 
 function looksLikeStructuredAgentPayload(parsed) {
   const hasActions = Array.isArray(parsed.actions) && parsed.actions.length > 0;
-  const hasControlType = ["agent_plan", "natural_response", "ask_user", "stop_for_human", "memory_proposal"].includes(parsed.type);
+  const hasControlType = ["agent_plan", "natural_response", "portfolio_analysis", "ask_user", "stop_for_human", "memory_proposal"].includes(parsed.type);
   const hasCompanionFields = typeof parsed.summary_for_user === "string"
     || typeof parsed.question === "string"
     || typeof parsed.reason === "string"
