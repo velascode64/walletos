@@ -84,6 +84,10 @@ async function handleMessage(message, sender) {
     return observeActiveTab(message.payload);
   }
 
+  if (message?.type === MESSAGE_TYPES.SYNC_WALLETS) {
+    return syncWallets(message.payload);
+  }
+
   if (message?.type === MESSAGE_TYPES.NATIVE_HEALTH) {
     return checkNativeHealth();
   }
@@ -194,6 +198,19 @@ async function handleMessage(message, sender) {
   return {
     ok: false,
     error: `Unsupported message type: ${message?.type || "missing"}`
+  };
+}
+
+async function syncWallets(context = {}) {
+  const tab = await resolveExecutionContextTab(context);
+  if (!tab?.id) {
+    return { ok: false, error: "No active tab is available to sync wallets." };
+  }
+
+  const response = await chrome.tabs.sendMessage(tab.id, { type: "walletos_sync_wallets" });
+  return {
+    ok: true,
+    wallets: Array.isArray(response?.wallets) ? response.wallets : []
   };
 }
 
@@ -516,7 +533,7 @@ async function unloadHttpProvider(payload) {
 
 async function requestAgent(payload) {
   try {
-    const provider = payload?.provider || payload?.providerId || "openai-codex";
+    const provider = payload?.provider || payload?.providerId || "github-copilot-cli";
     console.log(`[WalletOS app] Sending ${provider} chat request.`);
     const localResponse = await requestWalletOsAppAgent(payload);
     if (localResponse) {
@@ -527,8 +544,8 @@ async function requestAgent(payload) {
       };
     }
 
-    if (provider === "openai-codex") {
-      throw new Error("WalletOS local Codex server is unavailable. Start walletos_app with bun run tauri:dev.");
+    if (provider === "google-gemini-cli" || provider === "github-copilot-cli") {
+      throw new Error("WalletOS local agent server is unavailable. Start walletos_app with bun run tauri:dev.");
     }
 
     console.log("[WalletOS app] Non-Codex provider: using Native Messaging.");
@@ -553,22 +570,32 @@ async function requestAgent(payload) {
 }
 
 async function requestWalletOsAppAgent(payload = {}) {
-  if ((payload.provider || payload.providerId || "openai-codex") !== "openai-codex" || payload.httpProvider) {
+  const provider = payload.provider || payload.providerId || "github-copilot-cli";
+  if (!["openai-codex", "google-gemini-cli", "github-copilot-cli"].includes(provider) || payload.httpProvider) {
     return null;
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000);
   try {
+    const intent = payload.goal || payload.userMessage || payload.message || "";
+    const normalizedIntent = String(intent).toLowerCase();
+    const skills = /portfolio|wallet balances|cross-wallet|claims|rewards/.test(normalizedIntent)
+      ? ["the-graph-onchain"]
+      : [];
     const task = createWalletOsTask({
+      agent: payload.agent || (provider === "github-copilot-cli"
+        ? "copilot"
+        : (provider === "google-gemini-cli" ? "gemini" : "codex")),
       type: "conversation",
-      intent: payload.goal || payload.userMessage || payload.message || "",
+      intent,
       context: createWalletOsConversationContext({
         conversation: payload.conversationContext || payload.messages || [],
         observation: payload.observation,
-        wallet: payload.wallet
+        wallet: payload.wallet,
+        wallets: payload.wallets
       }),
-      skills: []
+      skills
     });
     console.log("[WalletOS app] POST /codex", {
       taskId: task.taskId,

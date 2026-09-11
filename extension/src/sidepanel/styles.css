@@ -213,7 +213,8 @@ button:hover {
 }
 
 .network-chip,
-.wallet-chip {
+.wallet-chip,
+.wallet-selector {
   display: inline-flex;
   min-height: 26px;
   align-items: center;
@@ -224,6 +225,24 @@ button:hover {
   background: var(--panel);
   font-size: 11px;
   font-weight: 650;
+}
+
+.wallet-selector select {
+  max-width: 150px;
+  min-height: 24px;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  outline: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.wallet-sync {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgb(92 37 242 / 22%);
+  font-weight: 700;
 }
 
 .network-chip {

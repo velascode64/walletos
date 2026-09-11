@@ -4,6 +4,7 @@
 //! Command implementations are organized in the `commands` module,
 //! and shared types are in the `types` module.
 
+mod agent_adapter;
 mod bindings;
 mod commands;
 mod local_server;

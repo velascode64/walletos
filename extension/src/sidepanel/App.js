@@ -21,6 +21,7 @@ const HTTP_PROVIDER_DEFAULT_PLANNER_ENABLED = false;
 const HTTP_PROVIDER_LEGACY_TIMEOUT_MS = 360000;
 const HTTP_PROVIDER_KIND_OPENAI = "openai-compatible";
 const HTTP_PROVIDER_KIND_CLOUDFLARE = "cloudflare-workers-ai";
+const COPILOT_CLI_PROVIDER_ID = "github-copilot-cli";
 const GEMINI_CLI_PROVIDER_ID = "google-gemini-cli";
 const GEMINI_NANO_PROVIDER_ID = "chrome-gemini-nano";
 const GEMINI_NANO_MODEL_ID = "gemini-nano";
@@ -48,6 +49,19 @@ const state = {
     status: "unknown",
     message: "Connector status has not been checked.",
     providers: [
+      {
+        id: "github-copilot-cli",
+        label: "GitHub Copilot CLI",
+        status: "missing",
+        statusLabel: "Missing",
+        installed: false,
+        connected: false,
+        command: "copilot",
+        installCommand: "Install GitHub Copilot CLI",
+        models: ["default"],
+        defaultModel: "default",
+        message: "GitHub Copilot CLI has not been detected."
+      },
       {
         id: "openai-codex",
         label: "Codex",
@@ -100,6 +114,8 @@ const state = {
     windowId: null,
     tabId: null
   },
+  wallets: [],
+  selectedWalletKey: "",
   attachments: [],
   messages: [
     {
@@ -131,8 +147,8 @@ const state = {
     sendAttachmentsToCodex: true
   },
   codex: {
-    provider: "openai-codex",
-    model: "gpt-5.5"
+    provider: "github-copilot-cli",
+    model: "default"
   },
   httpProviders: [],
   httpProviderDraft: {
@@ -300,8 +316,7 @@ function render(options = {}) {
         </div>
       </div>
       <div class="top-actions">
-        <span class="network-chip">${escapeHtml(getNetworkLabel())}</span>
-        <span class="wallet-chip">${escapeHtml(getWalletLabel())}</span>
+        ${renderWalletSelector()}
         <button id="open-settings-view" class="top-action icon-action" type="button" title="Settings" aria-label="Settings">&#9881;</button>
         <button id="theme-toggle" class="top-action icon-action theme-toggle" type="button" title="${escapeHtml(getThemeTitle())}" aria-label="${escapeHtml(getThemeTitle())}">${escapeHtml(getThemeIcon())}</button>
       </div>
@@ -333,7 +348,7 @@ function render(options = {}) {
       <div>
         <span class="autonomous-guard-label">ALWAYS ON</span>
         <strong>Autonomous Guard</strong>
-        <p>WalletOS makes your crypto wallets <b>smarter, safer, and easier to use with AI.</b></p>
+        <p>Your AI companion for crypto wallets makes your autonomous workflows <b>smarter, safer and easier</b></p>
       </div>
     </aside>
 
@@ -379,7 +394,15 @@ function render(options = {}) {
     ${renderComposer()}
   `;
 
-  document.getElementById("observe-page").addEventListener("click", observePage);
+  const observePageButton = document.getElementById("observe-page");
+  if (observePageButton) observePageButton.addEventListener("click", observePage);
+  const syncWalletsButton = document.getElementById("sync-wallets");
+  if (syncWalletsButton) syncWalletsButton.addEventListener("click", syncWalletContext);
+  const walletSelector = document.getElementById("wallet-selector");
+  if (walletSelector) walletSelector.addEventListener("change", (event) => {
+    state.selectedWalletKey = event.target.value;
+    render({ preserveComposer: true });
+  });
   const callCodexButton = document.getElementById("call-codex");
   if (callCodexButton) callCodexButton.addEventListener("click", callCodex);
   const observePageSettings = document.getElementById("observe-page-settings");
@@ -396,6 +419,9 @@ function render(options = {}) {
     button.addEventListener("click", () => {
       openSettingsSection(button.dataset.settingsSection);
     });
+  });
+  document.querySelectorAll("[data-suggested-action]").forEach((button) => {
+    button.addEventListener("click", () => handleSuggestedAction(button.dataset.suggestedAction));
   });
   setupChatScrollControls();
   restoreChatViewportState(chatViewportState);
@@ -661,12 +687,62 @@ function getPageDomainLabel() {
 }
 
 function getNetworkLabel() {
-  return state.page.observation?.chainId || "Base";
+  return getSelectedWallet()?.chainId || state.page.observation?.chainId || "No network";
 }
 
 function getWalletLabel() {
-  const address = state.page.observation?.wallet?.address || state.page.observation?.address;
-  return address ? `${String(address).slice(0, 6)}...${String(address).slice(-4)}` : "0x71C...89e2";
+  const address = getSelectedWallet()?.address || state.page.observation?.wallet?.address || state.page.observation?.address;
+  return address ? `${String(address).slice(0, 6)}...${String(address).slice(-4)}` : "No wallet synced";
+}
+
+function getSelectedWallet() {
+  return state.wallets.find((wallet) => `${wallet.address}:${wallet.chainId}` === state.selectedWalletKey)
+    || state.wallets[0]
+    || null;
+}
+
+function renderWalletSelector() {
+  if (!state.wallets.length) {
+    return `<button id="sync-wallets" class="wallet-chip wallet-sync" type="button" title="Sync wallets">Sync wallets</button>`;
+  }
+
+  const options = state.wallets.map((wallet) => {
+    const key = `${wallet.address}:${wallet.chainId}`;
+    const selected = key === (state.selectedWalletKey || `${state.wallets[0].address}:${state.wallets[0].chainId}`) ? "selected" : "";
+    return `<option value="${escapeHtml(key)}" ${selected}>${escapeHtml(`${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)} · ${wallet.chainId}`)}</option>`;
+  }).join("");
+
+  return `<label class="wallet-selector" title="Connected wallets"><select id="wallet-selector" aria-label="Connected wallets">${options}</select></label>`;
+}
+
+async function syncWalletContext() {
+  const tab = await getCurrentActiveTab();
+  const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.SYNC_WALLETS, tab ? { tabId: tab.id, windowId: tab.windowId } : {}));
+  if (!response?.ok) {
+    state.activity.unshift(response?.error || "Wallet sync failed.");
+    render();
+    return;
+  }
+
+  state.wallets = Array.isArray(response.wallets) ? response.wallets : [];
+  state.selectedWalletKey = state.wallets[0] ? `${state.wallets[0].address}:${state.wallets[0].chainId}` : "";
+  state.activity.unshift(state.wallets.length ? `Synced ${state.wallets.length} wallet${state.wallets.length === 1 ? "" : "s"}.` : "No connected wallets found on the current tab.");
+  render({ preserveComposer: true });
+}
+
+function handleSuggestedAction(action) {
+  const goals = {
+    portfolio: "Analyze my portfolio across all connected wallets. Use The Graph before making any conclusion.",
+    site: "Check the current site and explain whether it looks trustworthy.",
+    claims: "Find relevant unclaimed rewards for my connected wallets using The Graph.",
+    contract: "Inspect the current contract or wallet interaction before I approve it."
+  };
+  const goal = goals[action];
+  if (!goal) return;
+  state.composerDraft = goal;
+  state.chatSessionStarted = true;
+  render({ preserveComposer: false, focusComposer: true });
+  document.getElementById("chat-form")?.requestSubmit();
 }
 
 function getMonitoringLabel() {
@@ -747,7 +823,7 @@ function handleWindowFocus() {
 function shouldAutoRefreshConnectorStatus() {
   const provider = getSelectedProviderStatus();
   return !document.hidden
-    && provider?.id === GEMINI_CLI_PROVIDER_ID
+    && provider?.id === COPILOT_CLI_PROVIDER_ID
     && Boolean(provider?.connected);
 }
 
@@ -2031,7 +2107,7 @@ function renderMemoryItem(item) {
 
 function renderModelOptions() {
   const provider = getSelectedProviderStatus();
-  const models = provider?.models?.length ? provider.models : getDefaultProviderStatus("openai-codex").models;
+  const models = provider?.models?.length ? provider.models : getDefaultProviderStatus(COPILOT_CLI_PROVIDER_ID).models;
 
   return models.map((model) => {
     const selected = model === state.codex.model ? "selected" : "";
@@ -2040,13 +2116,14 @@ function renderModelOptions() {
 }
 
 function renderProviderOptions() {
-  const codex = state.connector.providers.find((provider) => provider.id === "openai-codex")
-    || getDefaultProviderStatus("openai-codex");
-  const providers = [codex];
+  const providerIds = [COPILOT_CLI_PROVIDER_ID, "openai-codex", GEMINI_CLI_PROVIDER_ID];
+  const providers = providerIds.map((id) => state.connector.providers.find((provider) => provider.id === id)
+    || getDefaultProviderStatus(id));
 
   return providers.map((provider) => {
     const selected = provider.id === state.codex.provider ? "selected" : "";
-    const disabled = provider.connected ? "" : "disabled";
+    const isLocalAgentRoute = [COPILOT_CLI_PROVIDER_ID, "openai-codex", GEMINI_CLI_PROVIDER_ID].includes(provider.id);
+    const disabled = provider.connected || isLocalAgentRoute ? "" : "disabled";
     const suffix = provider.connected ? "" : ` (${provider.statusLabel || "unavailable"})`;
     return `<option value="${escapeHtml(provider.id)}" ${selected} ${disabled}>${escapeHtml(provider.label + suffix)}</option>`;
   }).join("");
@@ -2356,6 +2433,7 @@ function formatHttpProviderStatusMessage(provider) {
 
 function getDefaultProviderStatuses() {
   return [
+    getDefaultProviderStatus(COPILOT_CLI_PROVIDER_ID),
     getDefaultProviderStatus("openai-codex"),
     getDefaultProviderStatus("anthropic-claude-code"),
     getDefaultProviderStatus("google-gemini-cli")
@@ -2364,6 +2442,14 @@ function getDefaultProviderStatuses() {
 
 function getDefaultProviderStatus(id) {
   const defaults = {
+    "github-copilot-cli": {
+      id: "github-copilot-cli",
+      label: "GitHub Copilot CLI",
+      command: "copilot",
+      installCommand: "Install GitHub Copilot CLI",
+      models: ["default"],
+      defaultModel: "default"
+    },
     "openai-codex": {
       id: "openai-codex",
       label: "Codex",
@@ -2455,8 +2541,8 @@ function ensureSelectedProviderAvailable() {
   if (!existsInList) {
     const connectedProviders = state.connector.providers.filter((provider) => provider.connected);
     if (connectedProviders.length) {
-      const codex = connectedProviders.find((provider) => provider.id === "openai-codex");
-      state.codex.provider = (codex || connectedProviders[0]).id;
+      const gemini = connectedProviders.find((provider) => provider.id === GEMINI_CLI_PROVIDER_ID);
+      state.codex.provider = (gemini || connectedProviders[0]).id;
     }
   }
 
@@ -3774,12 +3860,12 @@ async function handleChatSubmit(event) {
   }
 
   state.pendingResume = null;
-  const questionTab = await getCurrentActiveTab();
-  const questionContext = tabToPageContext(questionTab);
-  rememberSidebarContextFromTab(questionTab);
-  rememberActiveTab(questionTab);
   if (state.composerMode === "deep-search") {
     state.composerDraft = "";
+    const questionTab = await getCurrentActiveTab();
+    const questionContext = tabToPageContext(questionTab);
+    rememberSidebarContextFromTab(questionTab);
+    rememberActiveTab(questionTab);
     await launchDeepSearchRun(text, questionContext);
     render({ preserveComposer: false, focusComposer: true });
     return;
@@ -3789,35 +3875,46 @@ async function handleChatSubmit(event) {
 
   state.composerDraft = "";
   state.chatSessionStarted = true;
-  state.outboundQueue.push({
+  const queuedItem = {
     id: crypto.randomUUID(),
     messageId,
     text,
     createdAt,
-    planContext: questionContext,
+    planContext: null,
     includeWebContext: state.includeWebContext,
     queueStatus: state.isProcessingQueue ? "queued" : "pending"
-  });
+  };
+  state.outboundQueue.push(queuedItem);
+  state.activity.unshift("Message queued for Copilot CLI.");
   render({ preserveComposer: false, focusComposer: true });
+
+  try {
+    const questionTab = await getCurrentActiveTab();
+    queuedItem.planContext = tabToPageContext(questionTab);
+    rememberSidebarContextFromTab(questionTab);
+    rememberActiveTab(questionTab);
+  } catch (error) {
+    state.activity.unshift(`Could not read the active tab; sending without page context: ${error.message || "unknown error"}`);
+  }
 
   processOutboundQueue();
 }
 
 async function callCodex() {
   const createdAt = Date.now();
-  const goal = "Reply with a short JSON-compatible Browser Companion response confirming Codex exec was called from the WalletOS Call Codex button.";
+  const goal = "Reply with a short JSON-compatible Browser Companion response confirming GitHub Copilot CLI was called from the WalletOS provider test button.";
   state.messages.push({
     role: "user",
-    text: "Call Codex",
+    text: "Call Copilot CLI",
     createdAt
   });
-  state.activity.unshift("Call Codex button clicked.");
+  state.activity.unshift("Call Copilot CLI button clicked.");
   render();
 
   const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.AGENT_REQUEST, {
     goal,
     responseLanguage: "en",
-    provider: "openai-codex",
+    provider: COPILOT_CLI_PROVIDER_ID,
     model: state.codex.model,
     runtimeContext: {
       startedAt: new Date(createdAt).toISOString(),
@@ -3837,12 +3934,12 @@ async function callCodex() {
   state.messages.push({
     role: "assistant",
     text: response.ok
-      ? getReadableAgentText(response.envelope?.payload?.text || response.envelope?.payload?.message || "Codex completed the request.")
-      : `Codex call failed: ${response.error || "Unknown error."}`,
+      ? getReadableAgentText(response.envelope?.payload?.text || response.envelope?.payload?.message || "Copilot CLI completed the request.")
+      : `Copilot CLI call failed: ${response.error || "Unknown error."}`,
     variant: response.ok ? "" : "error",
     createdAt: Date.now()
   });
-  state.activity.unshift(response.ok ? "Call Codex completed." : "Call Codex failed.");
+  state.activity.unshift(response.ok ? "Call Copilot CLI completed." : "Call Copilot CLI failed.");
   persistSession();
   render();
 }
@@ -5099,7 +5196,7 @@ async function getAgentResult(goal, options = {}) {
   goal = expandAgentGoal(goal);
   const responseLanguage = detectUserLanguage(goal);
   const providerGoal = getProviderLoggedUserText(goal, options.createdAt);
-  if (state.codex.provider === "openai-codex") {
+  if ([COPILOT_CLI_PROVIDER_ID, GEMINI_CLI_PROVIDER_ID, "openai-codex"].includes(state.codex.provider)) {
     return requestWalletOsCodexChat(providerGoal, responseLanguage, options);
   }
 
@@ -5138,6 +5235,8 @@ async function getAgentResult(goal, options = {}) {
     const observationForRequest = compactObservationForProvider(rawObservation, observationContext, providerContextMode);
     const providerContext = applyLinkReferencesForProvider({
       runtimeContext,
+      wallet: getSelectedWallet(),
+      wallets: state.wallets,
       conversationContext,
       recentReferences,
       accessibleTabs,
@@ -5296,18 +5395,20 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
   const payload = {
     goal,
     responseLanguage,
-    provider: "openai-codex",
+    provider: COPILOT_CLI_PROVIDER_ID,
     model: state.codex.model,
     conversationContext: getRecentConversationForProvider(goal),
-    observation
+    observation,
+    wallet: getSelectedWallet(),
+    wallets: state.wallets
   };
 
-  addDebugLog("walletos.codex_request.start", payload, `Codex / ${state.codex.model}`);
+  addDebugLog("walletos.agent_request.start", payload, `Copilot CLI / ${state.codex.model}`);
   state.liveThinking = {
     requestId: "",
     text: observation
-      ? "Codex is working with the current page context."
-      : "Codex is working on your message.",
+      ? "Copilot CLI is working with the current page context."
+      : "Copilot CLI is working on your message.",
     streaming: true,
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -5315,11 +5416,11 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
   refreshChatLog();
 
   const response = await requestSelectedProviderAgent(payload);
-  addDebugLog("walletos.codex_request.end", {
+  addDebugLog("walletos.agent_request.end", {
     ok: response.ok,
     error: response.error || "",
     result: response.envelope?.payload || null
-  }, response.ok ? "Codex response received." : response.error);
+  }, response.ok ? "Copilot CLI response received." : response.error);
 
   return response.ok
     ? response.envelope.payload
@@ -7484,6 +7585,7 @@ async function recoverFromAgentLoopError(result, options = {}) {
 function isProviderQuotaExhaustedResult(result) {
   const text = `${result?.message || ""} ${result?.error || ""} ${result?.text || ""}`;
   return /\blimit reached\b/i.test(text)
+    || /usage limit/i.test(text)
     || /insufficient[_\s-]?quota/i.test(text)
     || /\bout of credits?\b/i.test(text)
     || /\bbilling hard limit\b/i.test(text)
@@ -11678,7 +11780,7 @@ async function restoreProviderSettings() {
     : [];
   state.codex = {
     ...state.codex,
-    provider: "openai-codex",
+    provider: COPILOT_CLI_PROVIDER_ID,
     ...(settings.selectedModel ? { model: settings.selectedModel } : {})
   };
   state.connector.providers = normalizeProviderStatuses(state.connector.providers);

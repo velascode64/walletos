@@ -1,0 +1,12 @@
+{
+  "name": "@walletos/portfolio-intelligence",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "walletos-portfolio": "./bin/walletos-portfolio.mjs"
+  },
+  "scripts": {
+    "inspect": "node ./bin/walletos-portfolio.mjs"
+  }
+}

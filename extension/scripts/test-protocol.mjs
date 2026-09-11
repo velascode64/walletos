@@ -18,6 +18,7 @@ assert.deepEqual(task, {
   protocolVersion: 1,
   taskId: "task_test",
   type: "transaction_review",
+  agent: "codex",
   intent: "Review this transaction",
   context: { wallet: { chainId: "0xaa36a7" } },
   skills: ["claimos-security"]
@@ -39,7 +40,8 @@ assert.deepEqual(createWalletOsConversationContext({
 }), {
   conversation: [{ role: "user", text: "Hello" }],
   page: null,
-  wallet: null
+  wallet: null,
+  wallets: []
 });
 
 assert.deepEqual(createClaimosChatEvent({
