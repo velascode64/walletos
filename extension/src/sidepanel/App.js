@@ -745,12 +745,15 @@ async function syncWalletContext() {
 function handleSuggestedAction(action) {
   const goals = {
     portfolio: "Analyze my portfolio across all connected wallets. Use The Graph before making any conclusion.",
-    site: "Check the current site and explain whether it looks trustworthy.",
+    site: "Investigate this Web3 site in exactly three ordered phases: (1) inspect the web context and whether the site's promise makes sense, (2) use The Graph to verify the contract/protocol activity and history, and (3) if a prepared wallet request exists, decode and simulate it with Cast/Anvil before any signature. Return the complete site_investigation report and do not ask me to sign.",
     claims: "Find relevant unclaimed rewards for my connected wallets using The Graph.",
     contract: "Inspect the current contract or wallet interaction before I approve it."
   };
   const goal = goals[action];
   if (!goal) return;
+  if (action === "site") {
+    state.includeWebContext = true;
+  }
   state.composerDraft = goal;
   state.chatSessionStarted = true;
   render({ preserveComposer: false, focusComposer: true });
@@ -1598,6 +1601,9 @@ function renderMessage(message) {
   if (message.portfolio) {
     return renderPortfolioCard(message);
   }
+  if (message.siteInvestigation) {
+    return renderSiteInvestigationCard(message);
+  }
   if (message.role === "assistant" && message.variant === "error") {
     return renderErrorNote(message);
   }
@@ -1617,6 +1623,69 @@ function renderMessage(message) {
       </div>
       ${renderMessageThinking(message)}
       ${renderMessageContent(message)}
+    </article>
+  `;
+}
+
+function renderSiteInvestigationCard(message) {
+  const report = message.siteInvestigation || {};
+  const phases = Array.isArray(report.phases) ? report.phases : [];
+  const verdict = String(report.verdict || "INSUFFICIENT_DATA").toUpperCase();
+  const recommendation = String(report.recommendation || "REVIEW").toUpperCase();
+  const tone = verdict === "DANGEROUS" || recommendation === "DO_NOT_SIGN"
+    ? "dangerous"
+    : (verdict === "SAFE" ? "safe" : "review");
+  const phaseLabels = {
+    web_context: "Web context",
+    scam_sniffer: "Scam Sniffer",
+    the_graph: "The Graph",
+    anvil_cast: "Cast / Anvil"
+  };
+  const verdictCopy = {
+    SAFE: { icon: "✓", label: "Looks safe so far", detail: "No high-risk signal was found in the checks completed." },
+    WARNING: { icon: "!", label: "Needs a closer look", detail: "Some signals need your attention before you continue." },
+    DANGEROUS: { icon: "×", label: "Risk detected", detail: "Do not connect or sign until this is resolved." },
+    INSUFFICIENT_DATA: { icon: "?", label: "Not enough evidence", detail: "Nothing proves this site is safe yet." }
+  }[verdict] || { icon: "?", label: "Review needed", detail: "The investigation could not complete every check." };
+  const phaseCards = phases.map((phase, index) => {
+    const status = String(phase.status || "blocked").toLowerCase();
+    const statusLabel = status.replaceAll("_", " ");
+    const phaseTone = status === "complete" ? "complete" : (status === "partial" ? "partial" : "blocked");
+    const findings = Array.isArray(phase.findings) ? phase.findings : [];
+    const evidence = Array.isArray(phase.evidence) ? phase.evidence : [];
+    const missing = Array.isArray(phase.missing_data) ? phase.missing_data : [];
+    const phaseDescription = findings[0] || missing[0] || evidence[0] || "No additional details were returned.";
+    return `
+      <section class="investigation-phase investigation-phase-${phaseTone}">
+        <div class="investigation-phase-head">
+          <span class="investigation-phase-index">${index + 1}</span>
+          <div><strong>${escapeHtml(phaseLabels[phase.phase] || phase.phase || "Investigation phase")}</strong><small>${escapeHtml(statusLabel)}</small></div>
+          <span class="investigation-phase-status">${phaseTone === "complete" ? "Seen" : (phaseTone === "partial" ? "Partial" : "Not run")}</span>
+        </div>
+        <p class="investigation-phase-description">${escapeHtml(String(phaseDescription))}</p>
+        ${(evidence.length || missing.length) ? `<details class="investigation-details"><summary>See details</summary>${evidence.length ? `<strong>Evidence</strong><ul>${evidence.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>` : ""}${missing.length ? `<strong>Not available</strong><ul>${missing.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>` : ""}</details>` : ""}
+      </section>
+    `;
+  }).join("");
+  const domain = getPageDomainLabel();
+  const considerations = phases
+    .flatMap((phase) => Array.isArray(phase.missing_data) ? phase.missing_data : [])
+    .slice(0, 3);
+
+  return `
+    <article class="message assistant site-investigation-card investigation-${tone}" data-chat-item-key="${escapeHtml(getMessageTimelineKey(message))}">
+      <header class="investigation-header">
+        <div><small>WalletOS check</small><h3>Site Investigation</h3></div>
+        <div class="investigation-verdict"><span>${escapeHtml(verdictCopy.icon)} ${escapeHtml(verdictCopy.label)}</span><small>${escapeHtml(recommendation)}</small></div>
+      </header>
+      <div class="investigation-overview">
+        <div class="investigation-field"><small>Domain</small><strong>${escapeHtml(domain)}</strong></div>
+        <div class="investigation-field"><small>Description</small><p>${escapeHtml(report.summary_for_user || "I checked the site and its available Web3 signals.")}</p></div>
+        <div class="investigation-security"><span>${escapeHtml(verdictCopy.icon)}</span><div><strong>${escapeHtml(verdictCopy.label)}</strong><p>${escapeHtml(verdictCopy.detail)}</p></div></div>
+      </div>
+      <div class="investigation-section-label">Checks completed</div>
+      <div class="investigation-phases">${phaseCards || `<p class="investigation-empty">No investigation phases were returned.</p>`}</div>
+      <footer class="investigation-next"><small>Considerations</small><p>${escapeHtml(considerations[0] || report.next_action || "No extra considerations from the available evidence.")}</p></footer>
     </article>
   `;
 }
@@ -4490,13 +4559,6 @@ async function restoreClaimosAnalysis() {
 }
 
 function applyClaimosAnalysis(payload = {}) {
-  if (payload.context?.method === "eth_requestAccounts") {
-    if (payload.eventId) {
-      chrome.storage.session.remove(`${CLAIMOS_ANALYSIS_KEY_PREFIX}${payload.eventId}`);
-      state.messages = state.messages.filter((message) => message.id !== `claimos:${payload.eventId}`);
-    }
-    return;
-  }
   const eventId = String(payload.eventId || "");
   if (!eventId || (payload.target?.windowId != null && payload.target.windowId !== state.sidebarContext.windowId)) return;
   if (state.claimosEventPhases[eventId] === payload.phase) return;
@@ -4519,6 +4581,7 @@ function applyClaimosAnalysis(payload = {}) {
     state.messages.push(message);
   }
   state.chatSessionStarted = true;
+  state.view = "chat";
   if (payload.phase !== "analyzing") {
     chrome.storage.session.remove(`${CLAIMOS_ANALYSIS_KEY_PREFIX}${eventId}`);
   }
@@ -5244,6 +5307,12 @@ function normalizeGeminiNanoAgentPayload(result, payload = {}) {
     goal: String(result?.goal || payload.goal || ""),
     risk_level: ["low", "medium", "high", "sensitive", "blocked"].includes(result?.risk_level) ? result.risk_level : "low",
     summary_for_user: String(result?.summary_for_user || result?.summary || result?.text || ""),
+        ...(result?.type === "site_investigation" ? {
+          phases: Array.isArray(result.phases) ? result.phases : [],
+          verdict: String(result.verdict || "INSUFFICIENT_DATA"),
+          recommendation: String(result.recommendation || "REVIEW"),
+          next_action: String(result.next_action || "")
+        } : {}),
     needs_clarification: Boolean(result?.needs_clarification),
     requires_confirmation: Boolean(result?.requires_confirmation),
     will_submit: Boolean(result?.will_submit),
@@ -7079,6 +7148,26 @@ function buildDeterministicActionPlan(goal, responseLanguage) {
 async function handleAgentResult(result, options = {}) {
   result = normalizeAgentControlFlow(result);
   addDebugLog("agent.result", { result }, result?.type || "unknown result");
+
+  if (result?.type === "site_investigation") {
+    const phaseSummary = result.phases
+      .map((phase) => `${phase.phase}: ${phase.status}`)
+      .join(" · ");
+    state.messages.push({
+      role: "assistant",
+      text: [
+        result.summary_for_user || "Site investigation completed.",
+        `Verdict: ${result.verdict || "INSUFFICIENT_DATA"} · Recommendation: ${result.recommendation || "REVIEW"}`,
+        phaseSummary ? `Phases: ${phaseSummary}` : "",
+        result.next_action ? `Next action: ${result.next_action}` : ""
+      ].filter(Boolean).join("\n\n"),
+      siteInvestigation: result,
+      createdAt: Date.now()
+    });
+    state.activity.unshift("Site investigation completed in web, The Graph, and Cast/Anvil phases.");
+    render();
+    return;
+  }
 
   if (result?.type === "portfolio_analysis") {
     state.messages.push({

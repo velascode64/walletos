@@ -1,6 +1,7 @@
 (() => {
   const source = "CLAIMOS_GUARDIAN";
   const watchedMethods = new Set([
+    "eth_requestAccounts",
     "eth_sendTransaction",
     "eth_sign",
     "personal_sign",

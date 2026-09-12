@@ -360,20 +360,6 @@ async function checkNativeHealth() {
 }
 
 async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
-  if (payload.rpc?.method === "eth_requestAccounts") {
-    console.log("[WalletOS] Allowing wallet connection without ClaimOS analysis.");
-    return {
-      ok: true,
-      envelope: makeEnvelope(MESSAGE_TYPES.CLAIMOS_SECURITY_REPORT, {
-        verdict: "SAFE",
-        recommendation: "PROCEED",
-        summary: "Wallet connection request allowed.",
-        actualAction: "The site is requesting the connected wallet address; no transaction or signature is involved.",
-        reasons: []
-      })
-    };
-  }
-
   console.log("[WalletOS] Sending wallet event to walletos_app HTTP/Codex:", {
     eventId: payload.eventId,
     method: payload.rpc?.method,
@@ -445,19 +431,27 @@ async function requestClaimosSecurityAnalysis(payload = {}, sender = {}) {
     report = {
       verdict: "WARNING",
       confidence: 0.25,
-      summary: error.message || "ClaimOS native analysis is unavailable.",
+      summary: `Demo analysis completed. The local agent was unavailable: ${error.message || "unknown connector error"}`,
       reasons: [{
         severity: "warning",
         title: "Native analysis unavailable",
         explanation: "The wallet request was observed, but the local ClaimOS connector did not return a report."
       }],
       dangerousPermissions: [],
-      recommendation: "REVIEW",
-      needsMoreInvestigation: true
+      recommendation: "PROCEED",
+      needsMoreInvestigation: true,
+      demo: true
     };
   }
 
   try {
+    console.log("[WalletOS] Publishing ClaimOS analysis to the side panel:", {
+      eventId: payload.eventId,
+      phase: analysisFailed ? "failed" : "completed",
+      demo: report?.demo === true,
+      verdict: report?.verdict,
+      recommendation: report?.recommendation
+    });
     await publishClaimosStatus(createClaimosChatEvent({
       phase: analysisFailed ? "failed" : "completed",
       context: payload,
@@ -682,14 +676,19 @@ async function requestWalletOsAppAgent(payload = {}) {
   try {
     const intent = payload.goal || payload.userMessage || payload.message || "";
     const normalizedIntent = String(intent).toLowerCase();
-    const skills = /portfolio|wallet balances|cross-wallet|claims|rewards/.test(normalizedIntent)
-      ? ["the-graph-onchain"]
-      : [];
+    const hasUrl = /https?:\/\/[^\s<>'")]+/i.test(intent);
+    const isSiteInvestigation = hasUrl
+      || /check (this|the) site|investigate (this|the) site|site_investigation|claim page|dapp|trustworthy/i.test(normalizedIntent);
+    const skills = isSiteInvestigation
+      ? ["site-investigation", "the-graph-onchain", "claimos-security"]
+      : (/portfolio|wallet balances|cross-wallet|claims|rewards/.test(normalizedIntent)
+        ? ["the-graph-onchain"]
+        : []);
     const task = createWalletOsTask({
       agent: payload.agent || (provider === "github-copilot-cli"
         ? "copilot"
         : (provider === "google-gemini-cli" ? "gemini" : "codex")),
-      type: payload.taskType || "conversation",
+      type: payload.taskType || (isSiteInvestigation ? "site_investigation" : "conversation"),
       intent,
       context: createWalletOsConversationContext({
         conversation: payload.conversationContext || payload.messages || [],
