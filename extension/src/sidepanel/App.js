@@ -71,8 +71,8 @@ const state = {
         connected: false,
         command: "codex",
         installCommand: "npm install -g @openai/codex",
-        models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"],
-        defaultModel: "gpt-5.5",
+        models: ["default"],
+        defaultModel: "default",
         message: "Codex CLI has not been detected."
       },
       {
@@ -153,7 +153,7 @@ const state = {
     sendAttachmentsToCodex: true
   },
   codex: {
-    provider: "github-copilot-cli",
+    provider: "openai-codex",
     model: "default"
   },
   httpProviders: [],
@@ -2231,7 +2231,7 @@ function renderMemoryItem(item) {
 
 function renderModelOptions() {
   const provider = getSelectedProviderStatus();
-  const models = provider?.models?.length ? provider.models : getDefaultProviderStatus(COPILOT_CLI_PROVIDER_ID).models;
+  const models = provider?.models?.length ? provider.models : getDefaultProviderStatus("openai-codex").models;
 
   return models.map((model) => {
     const selected = model === state.codex.model ? "selected" : "";
@@ -2579,8 +2579,8 @@ function getDefaultProviderStatus(id) {
       label: "Codex",
       command: "codex",
       installCommand: "npm install -g @openai/codex",
-      models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"],
-      defaultModel: "gpt-5.5"
+      models: ["default"],
+      defaultModel: "default"
     },
     "anthropic-claude-code": {
       id: "anthropic-claude-code",
@@ -3784,7 +3784,7 @@ async function deleteHttpProvider(id) {
   state.httpProviders = state.httpProviders.filter((provider) => provider.id !== id);
   if (state.codex.provider === `http:${id}`) {
     state.codex.provider = "openai-codex";
-    state.codex.model = "gpt-5.5";
+    state.codex.model = "default";
   }
   state.connector.providers = normalizeProviderStatuses(state.connector.providers);
   ensureSelectedProviderAvailable();
@@ -4009,7 +4009,7 @@ async function handleChatSubmit(event) {
     queueStatus: state.isProcessingQueue ? "queued" : "pending"
   };
   state.outboundQueue.push(queuedItem);
-  state.activity.unshift("Message queued for Copilot CLI.");
+  state.activity.unshift(`Message queued for ${getSelectedProviderStatus()?.label || "Codex"}.`);
   render({ preserveComposer: false, focusComposer: true });
 
   try {
@@ -4026,19 +4026,20 @@ async function handleChatSubmit(event) {
 
 async function callCodex() {
   const createdAt = Date.now();
-  const goal = "Reply with a short JSON-compatible Browser Companion response confirming GitHub Copilot CLI was called from the WalletOS provider test button.";
+  const providerLabel = getSelectedProviderStatus()?.label || "Codex";
+  const goal = `Reply with a short JSON-compatible Browser Companion response confirming ${providerLabel} was called from the WalletOS provider test button.`;
   state.messages.push({
     role: "user",
-    text: "Call Copilot CLI",
+    text: `Call ${providerLabel}`,
     createdAt
   });
-  state.activity.unshift("Call Copilot CLI button clicked.");
+  state.activity.unshift(`Call ${providerLabel} button clicked.`);
   render();
 
   const response = await sendRuntimeMessage(makeEnvelope(MESSAGE_TYPES.AGENT_REQUEST, {
     goal,
     responseLanguage: "en",
-    provider: COPILOT_CLI_PROVIDER_ID,
+    provider: state.codex.provider,
     model: state.codex.model,
     runtimeContext: {
       startedAt: new Date(createdAt).toISOString(),
@@ -4058,12 +4059,12 @@ async function callCodex() {
   state.messages.push({
     role: "assistant",
     text: response.ok
-      ? getReadableAgentText(response.envelope?.payload?.text || response.envelope?.payload?.message || "Copilot CLI completed the request.")
-      : `Copilot CLI call failed: ${response.error || "Unknown error."}`,
+      ? getReadableAgentText(response.envelope?.payload?.text || response.envelope?.payload?.message || `${providerLabel} completed the request.`)
+      : `${providerLabel} call failed: ${response.error || "Unknown error."}`,
     variant: response.ok ? "" : "error",
     createdAt: Date.now()
   });
-  state.activity.unshift(response.ok ? "Call Copilot CLI completed." : "Call Copilot CLI failed.");
+  state.activity.unshift(response.ok ? `Call ${providerLabel} completed.` : `Call ${providerLabel} failed.`);
   persistSession();
   render();
 }
@@ -5510,6 +5511,7 @@ async function getAgentResult(goal, options = {}) {
 }
 
 async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
+  const providerLabel = getSelectedProviderStatus()?.label || "Codex";
   let observation = options.includeWebContext
     ? getObservationForContext(options.planContext)
     : null;
@@ -5529,7 +5531,7 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
       ? "portfolio_analysis"
       : "conversation",
     responseLanguage,
-    provider: COPILOT_CLI_PROVIDER_ID,
+    provider: state.codex.provider,
     model: state.codex.model,
     conversationContext: getRecentConversationForProvider(goal),
     observation,
@@ -5537,12 +5539,12 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
     wallets: state.wallets
   };
 
-  addDebugLog("walletos.agent_request.start", payload, `Copilot CLI / ${state.codex.model}`);
+  addDebugLog("walletos.agent_request.start", payload, `${providerLabel} / ${state.codex.model}`);
   state.liveThinking = {
     requestId: "",
     text: observation
-      ? "Copilot CLI is working with the current page context."
-      : "Copilot CLI is working on your message.",
+      ? `${providerLabel} is working with the current page context.`
+      : `${providerLabel} is working on your message.`,
     streaming: true,
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -5554,7 +5556,7 @@ async function requestWalletOsCodexChat(goal, responseLanguage, options = {}) {
     ok: response.ok,
     error: response.error || "",
     result: response.envelope?.payload || null
-  }, response.ok ? "Copilot CLI response received." : response.error);
+  }, response.ok ? `${providerLabel} response received.` : response.error);
 
   return response.ok
     ? response.envelope.payload
@@ -11950,8 +11952,12 @@ async function restoreProviderSettings() {
     : [];
   state.codex = {
     ...state.codex,
-    provider: COPILOT_CLI_PROVIDER_ID,
-    ...(settings.selectedModel ? { model: settings.selectedModel } : {})
+    provider: settings.selectedProvider === COPILOT_CLI_PROVIDER_ID
+      ? "openai-codex"
+      : (settings.selectedProvider || "openai-codex"),
+    model: settings.selectedProvider && settings.selectedProvider !== COPILOT_CLI_PROVIDER_ID
+      ? (settings.selectedModel || "default")
+      : "default"
   };
   state.connector.providers = normalizeProviderStatuses(state.connector.providers);
 }

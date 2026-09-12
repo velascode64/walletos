@@ -207,7 +207,7 @@ fn run_codex(body: &str) -> Value {
         Ok(task) => task,
         Err(error) => return error_response(format!("Invalid WalletOS task: {error}")),
     };
-    let model = task.model.as_deref().unwrap_or("gpt-5.5");
+    let model = task.model.as_deref().unwrap_or("default");
     let is_security_task = task.task_type == "transaction_review";
     let is_site_investigation = task.task_type == "site_investigation";
     let installed_skills = discover_skills(&task.skills);
