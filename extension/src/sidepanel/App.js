@@ -1642,10 +1642,10 @@ function renderSiteInvestigationCard(message) {
     anvil_cast: "Cast / Anvil"
   };
   const verdictCopy = {
-    SAFE: { icon: "✓", label: "Looks safe so far", detail: "No high-risk signal was found in the checks completed." },
-    WARNING: { icon: "!", label: "Needs a closer look", detail: "Some signals need your attention before you continue." },
-    DANGEROUS: { icon: "×", label: "Risk detected", detail: "Do not connect or sign until this is resolved." },
-    INSUFFICIENT_DATA: { icon: "?", label: "Not enough evidence", detail: "Nothing proves this site is safe yet." }
+    SAFE: { icon: "✓", label: "Safe: Yes", detail: "The checks completed did not find anything unusual." },
+    WARNING: { icon: "!", label: "Safe: Not yet", detail: "Some things need a closer look before you continue." },
+    DANGEROUS: { icon: "×", label: "Safe: No", detail: "Do not connect your wallet or sign anything here." },
+    INSUFFICIENT_DATA: { icon: "?", label: "Safe: Unknown", detail: "There is not enough information to call this site safe." }
   }[verdict] || { icon: "?", label: "Review needed", detail: "The investigation could not complete every check." };
   const phaseCards = phases.map((phase, index) => {
     const status = String(phase.status || "blocked").toLowerCase();

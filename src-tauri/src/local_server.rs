@@ -247,6 +247,7 @@ fn run_codex(body: &str) -> Value {
     } else if is_site_investigation {
         format!(
             "You are WalletOS, a local Web3 investigation agent. Follow the runtime instructions and the site-investigation skill below. Execute the investigation in exactly this order: Phase 1 web context, Phase 2 The Graph onchain corroboration, Phase 3 Cast/Anvil simulation when a prepared wallet request exists. Do not recommend signing before all applicable phases are complete.\n\\
+             IMPORTANT SCOPE: use only the page context, wallet request data, and installed skill instructions supplied below. Do not inspect the repository, scan the filesystem, run find/grep/ls, read files outside runtime/.agents/skills, or search broad paths such as /. Do not look for scripts: Scam Sniffer status must be reported from the supplied evidence or as unavailable.\n\\
              User intent: {}\n\\
              Requested WalletOS skills: {}\n\\
              Installed WalletOS plugins, instructions, and MCP configuration:\n{}\n\\
