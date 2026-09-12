@@ -679,11 +679,12 @@ async function requestWalletOsAppAgent(payload = {}) {
     const hasUrl = /https?:\/\/[^\s<>'")]+/i.test(intent);
     const isSiteInvestigation = hasUrl
       || /check (this|the) site|investigate (this|the) site|site_investigation|claim page|dapp|trustworthy/i.test(normalizedIntent);
+    const operatorSkills = ["wallet-operator", "privy-agents"];
     const skills = isSiteInvestigation
-      ? ["site-investigation", "the-graph-onchain", "claimos-security"]
+      ? ["site-investigation", "the-graph-onchain", "claimos-security", ...operatorSkills]
       : (/portfolio|wallet balances|cross-wallet|claims|rewards/.test(normalizedIntent)
-        ? ["the-graph-onchain"]
-        : []);
+        ? [...operatorSkills, "the-graph-onchain"]
+        : operatorSkills);
     const task = createWalletOsTask({
       agent: payload.agent || (provider === "github-copilot-cli"
         ? "copilot"
