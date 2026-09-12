@@ -1,0 +1,15 @@
+{
+  "name": "ledger-cli",
+  "version": "0.1.0",
+  "skill": "./SKILL.md",
+  "requires": {
+    "cli": ["node"],
+    "mcp": [],
+    "env": []
+  },
+  "capabilities": [
+    "wallet.ledger.sync",
+    "wallet.ledger.apdu",
+    "wallet.ledger.session.inspect"
+  ]
+}

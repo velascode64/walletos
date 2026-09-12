@@ -1,0 +1,8 @@
+{
+  "name": "@walletos/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "walletos-ledger": "./bin/walletos-ledger.mjs"
+  }
+}

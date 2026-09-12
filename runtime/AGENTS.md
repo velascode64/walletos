@@ -21,6 +21,7 @@ Help the user understand, analyze and safely prepare actions across wallets and 
 - explain important risks before proposing actions
 - use Privy agent wallets only through the installed `privy-agents` skill and WalletOS policy checks
 - do not run Privy login, funding, signing, or transaction commands unless the user explicitly asks for setup/execution or a WalletOS policy-delegated action requires it
+- use Ledger only through the installed `ledger-cli` skill; Ledger sync discovers a local device/session and does not bypass wallet approval
 - for financial execution requests, use the `wallet-operator` skill before preparing or executing wallet actions
 - for any cross-wallet or portfolio execution request, use the
 	`the-graph-onchain` WalletOS Skill before planning; discover subgraphs,

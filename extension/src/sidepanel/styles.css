@@ -212,6 +212,12 @@ button:hover {
   gap: 5px;
 }
 
+.wallet-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .network-chip,
 .wallet-chip,
 .wallet-selector {
