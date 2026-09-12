@@ -404,6 +404,8 @@ function render(options = {}) {
   if (observePageButton) observePageButton.addEventListener("click", observePage);
   const syncWalletsButton = document.getElementById("sync-wallets");
   if (syncWalletsButton) syncWalletsButton.addEventListener("click", syncWalletContext);
+  const syncLedgerButton = document.getElementById("sync-ledger");
+  if (syncLedgerButton) syncLedgerButton.addEventListener("click", syncLedgerContext);
   const walletSelector = document.getElementById("wallet-selector");
   if (walletSelector) walletSelector.addEventListener("change", (event) => {
     state.selectedWalletKey = event.target.value;
@@ -709,7 +711,7 @@ function getSelectedWallet() {
 
 function renderWalletSelector() {
   if (!state.wallets.length) {
-    return `<button id="sync-wallets" class="wallet-chip wallet-sync" type="button" title="Connect MetaMask">Connect MetaMask</button>`;
+    return `<div class="wallet-actions"><button id="sync-wallets" class="wallet-chip wallet-sync" type="button" title="Connect MetaMask">Connect MetaMask</button><button id="sync-ledger" class="wallet-chip wallet-sync" type="button" title="Sync Ledger">Sync Ledger</button></div>`;
   }
 
   const options = state.wallets.map((wallet) => {
@@ -718,7 +720,7 @@ function renderWalletSelector() {
     return `<option value="${escapeHtml(key)}" ${selected}>${escapeHtml(`${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)} · ${wallet.chainId}`)}</option>`;
   }).join("");
 
-  return `<label class="wallet-selector" title="Connected wallets"><select id="wallet-selector" aria-label="Connected wallets">${options}</select></label>`;
+  return `<div class="wallet-actions"><label class="wallet-selector" title="Connected wallets"><select id="wallet-selector" aria-label="Connected wallets">${options}</select></label><button id="sync-ledger" class="wallet-chip wallet-sync" type="button" title="Sync Ledger">Sync Ledger</button></div>`;
 }
 
 async function syncWalletContext() {
@@ -740,6 +742,14 @@ async function syncWalletContext() {
   state.selectedWalletKey = state.wallets[0] ? `${state.wallets[0].address}:${state.wallets[0].chainId}` : "";
   state.activity.unshift(state.wallets.length ? `Synced ${state.wallets.length} wallet${state.wallets.length === 1 ? "" : "s"}.` : "No connected wallets found on the current tab.");
   render({ preserveComposer: true });
+}
+
+function syncLedgerContext() {
+  state.composerDraft = "Sync my Ledger using the ledger-cli skill. Run `node packages/ledger/bin/walletos-ledger.mjs sync`, report whether the local Ledger/Speculos session is reachable, and do not sign or broadcast anything.";
+  state.chatSessionStarted = true;
+  state.activity.unshift("Ledger sync request queued.");
+  render({ preserveComposer: false, focusComposer: true });
+  document.getElementById("chat-form")?.requestSubmit();
 }
 
 function handleSuggestedAction(action) {

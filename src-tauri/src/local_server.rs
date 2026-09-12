@@ -508,7 +508,11 @@ mod tests {
 
     #[test]
     fn discovers_wallet_operator_and_privy_plugins_from_runtime() {
-        let plugins = discover_skills(&["wallet-operator".to_string(), "privy-agents".to_string()]);
+        let plugins = discover_skills(&[
+            "wallet-operator".to_string(),
+            "privy-agents".to_string(),
+            "ledger-cli".to_string(),
+        ]);
         assert!(plugins.iter().any(|plugin| {
             plugin.get("name").and_then(Value::as_str) == Some("wallet-operator")
                 && plugin
@@ -522,6 +526,13 @@ mod tests {
                     .get("skillInstructions")
                     .and_then(Value::as_str)
                     .is_some_and(|instructions| instructions.contains("Privy Agent Wallets"))
+        }));
+        assert!(plugins.iter().any(|plugin| {
+            plugin.get("name").and_then(Value::as_str) == Some("ledger-cli")
+                && plugin
+                    .get("skillInstructions")
+                    .and_then(Value::as_str)
+                    .is_some_and(|instructions| instructions.contains("Ledger CLI"))
         }));
     }
 }

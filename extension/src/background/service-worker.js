@@ -679,7 +679,7 @@ async function requestWalletOsAppAgent(payload = {}) {
     const hasUrl = /https?:\/\/[^\s<>'")]+/i.test(intent);
     const isSiteInvestigation = hasUrl
       || /check (this|the) site|investigate (this|the) site|site_investigation|claim page|dapp|trustworthy/i.test(normalizedIntent);
-    const operatorSkills = ["wallet-operator", "privy-agents"];
+    const operatorSkills = ["wallet-operator", "privy-agents", "ledger-cli"];
     const skills = isSiteInvestigation
       ? ["site-investigation", "the-graph-onchain", "claimos-security", ...operatorSkills]
       : (/portfolio|wallet balances|cross-wallet|claims|rewards/.test(normalizedIntent)
