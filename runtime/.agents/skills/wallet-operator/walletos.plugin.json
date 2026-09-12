@@ -1,0 +1,18 @@
+{
+  "name": "wallet-operator",
+  "version": "0.1.0",
+  "skill": "./SKILL.md",
+  "requires": {
+    "cli": [],
+    "mcp": [],
+    "env": []
+  },
+  "capabilities": [
+    "wallet.goal.plan",
+    "wallet.policy.verify",
+    "wallet.transfer.prepare",
+    "wallet.swap.prepare",
+    "wallet.bridge.prepare",
+    "wallet.stablecoin.convert"
+  ]
+}

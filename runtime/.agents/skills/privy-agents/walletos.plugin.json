@@ -1,0 +1,18 @@
+{
+  "name": "privy-agents",
+  "version": "0.1.0",
+  "skill": "./SKILL.md",
+  "requires": {
+    "cli": ["pnpm"],
+    "mcp": [],
+    "env": []
+  },
+  "capabilities": [
+    "wallet.agent.login",
+    "wallet.agent.fund",
+    "wallet.agent.list",
+    "wallet.message.sign",
+    "wallet.transaction.sign",
+    "wallet.transaction.send"
+  ]
+}

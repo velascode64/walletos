@@ -505,4 +505,23 @@ mod tests {
                     .is_some_and(|instructions| instructions.contains("Phase 1: Web context"))
         }));
     }
+
+    #[test]
+    fn discovers_wallet_operator_and_privy_plugins_from_runtime() {
+        let plugins = discover_skills(&["wallet-operator".to_string(), "privy-agents".to_string()]);
+        assert!(plugins.iter().any(|plugin| {
+            plugin.get("name").and_then(Value::as_str) == Some("wallet-operator")
+                && plugin
+                    .get("skillInstructions")
+                    .and_then(Value::as_str)
+                    .is_some_and(|instructions| instructions.contains("Wallet Operator"))
+        }));
+        assert!(plugins.iter().any(|plugin| {
+            plugin.get("name").and_then(Value::as_str) == Some("privy-agents")
+                && plugin
+                    .get("skillInstructions")
+                    .and_then(Value::as_str)
+                    .is_some_and(|instructions| instructions.contains("Privy Agent Wallets"))
+        }));
+    }
 }
