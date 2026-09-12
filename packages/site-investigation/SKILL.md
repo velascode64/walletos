@@ -17,14 +17,11 @@ is complete.
 
 ## Scam Sniffer intelligence
 
-Before The Graph and before simulation, run the bundled domain check:
-
-```text
-node packages/site-investigation/scripts/check-scam-sniffer.mjs <url-or-domain>
-```
-
-It reads Scam Sniffer's public `blacklist/domains.json` source, caches it for a
-short period, and returns JSON with `match`, `no_match`, or `unavailable`.
+Before The Graph and before simulation, use the Scam Sniffer domain check
+provided by the WalletOS runtime. Do not search the filesystem for a script or
+scan the repository to perform this check. The runtime reads Scam Sniffer's
+public `blacklist/domains.json` source, caches it for a short period, and
+provides JSON with `match`, `no_match`, or `unavailable`.
 `no_match` is not proof that a site is safe. A `match` is high-priority evidence
 and should produce `DANGEROUS` / `DO_NOT_SIGN` unless stronger verified evidence
 proves the match is unrelated. If the network is unavailable, report the check
