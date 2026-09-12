@@ -84,7 +84,9 @@
       pendingWalletRequests.delete(context.eventId);
       const verdict = String(report?.verdict || "").toUpperCase();
       const recommendation = String(report?.recommendation || "").toUpperCase();
-      sendWalletDecision(event.data.requestId, verdict === "SAFE" && recommendation === "PROCEED");
+      const allow = report?.demo === true || (verdict === "SAFE" && recommendation === "PROCEED");
+      console.log("[WalletOS] ClaimOS analysis decision:", { eventId: context.eventId, verdict, recommendation, demo: report?.demo === true, allow });
+      sendWalletDecision(event.data.requestId, allow);
     } catch (error) {
       console.warn("[WalletOS] ClaimOS/Codex analysis failed:", error);
       if (!pendingWalletRequests.has(context.eventId)) return;
