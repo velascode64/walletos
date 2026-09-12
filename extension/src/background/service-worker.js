@@ -629,7 +629,7 @@ async function unloadHttpProvider(payload) {
 
 async function requestAgent(payload) {
   try {
-    const provider = payload?.provider || payload?.providerId || "github-copilot-cli";
+    const provider = payload?.provider || payload?.providerId || "openai-codex";
     console.log(`[WalletOS app] Sending ${provider} chat request.`);
     const localResponse = await requestWalletOsAppAgent(payload);
     if (localResponse) {
@@ -666,7 +666,7 @@ async function requestAgent(payload) {
 }
 
 async function requestWalletOsAppAgent(payload = {}) {
-  const provider = payload.provider || payload.providerId || "github-copilot-cli";
+  const provider = payload.provider || payload.providerId || "openai-codex";
   if (!["openai-codex", "google-gemini-cli", "github-copilot-cli"].includes(provider) || payload.httpProvider) {
     return null;
   }

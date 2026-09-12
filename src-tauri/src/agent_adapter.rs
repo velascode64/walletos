@@ -27,20 +27,17 @@ impl AgentAdapter for CodexAdapter {
 
     fn start_task(&self, prompt: &str, model: &str) -> Result<Output, String> {
         let command = resolve_command("CODEX_BIN", "codex");
-        run_command(
-            command,
-            vec![
-                "exec".into(),
-                "--model".into(),
-                model.into(),
-                "--skip-git-repo-check".into(),
-                "--sandbox".into(),
-                "read-only".into(),
-                "-".into(),
-            ],
-            prompt,
-            runtime_dir(),
-        )
+        let mut args = vec![
+            "exec".into(),
+            "--skip-git-repo-check".into(),
+            "--sandbox".into(),
+            "read-only".into(),
+            "-".into(),
+        ];
+        if !model.is_empty() && model != "default" {
+            args.splice(1..1, ["--model".into(), model.into()]);
+        }
+        run_command(command, args, prompt, runtime_dir())
     }
 }
 
