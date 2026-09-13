@@ -1,118 +1,134 @@
-# Tauri React Template
+# WalletOS
 
-A "batteries-included" template for building production-ready desktop applications with **Tauri v2**, **React**, and **TypeScript**. Designed with opinionated patterns that help both human developers and AI coding agents build well-architected apps from the start.
+WalletOS is an intelligent operating layer for crypto wallets.
 
-## Why This Template?
+It sits between Web3 dApps, browser wallets, local AI agents, and specialized WalletOS Skills so users can understand wallet actions before they approve them. WalletOS is not a wallet, custody provider, exchange, or trading bot. The agent analyzes and prepares; the wallet signs; the user stays in control.
 
-Most Tauri starters give you a blank canvas. This template gives you a **working application** with patterns already established:
+Product definitions live in [`docs/project-definition/`](docs/project-definition/).
 
-- **Type-safe Rust-TypeScript bridge** via tauri-specta.
-- **Performance patterns enforced by tooling** - all the usual linting plus ast-grep for common anti-patterns
-- **Multi-window architecture** already working (quick pane with global shortcut as a demo)
-- **Cross-platform ready** with platform-specific title bars, window controls, and native menu integration
-- **i18n built-in** with RTL support
+## Problem
 
-## Stack
+Crypto wallets show raw blockchain operations but rarely explain intent, risk, or context. Users are asked to approve signatures, token permissions, claims, bridges, swaps, and contract calls without enough information about what the action actually does.
 
-| Layer    | Technologies                                    |
-| -------- | ----------------------------------------------- |
-| Frontend | React 19, TypeScript, Vite 7                    |
-| UI       | shadcn/ui v4, Tailwind CSS v4, Lucide React     |
-| State    | Zustand v5, TanStack Query v5                   |
-| Backend  | Tauri v2, Rust                                  |
-| Testing  | Vitest v4, Testing Library                      |
-| Quality  | ESLint, Prettier, ast-grep, knip, jscpd, clippy |
+WalletOS solves this by detecting meaningful Web3 interactions, collecting page and wallet context, routing the task to a local agent, and using skills/plugins to return a clear verdict or prepared action.
 
-## What's Already Built
+## Goal
 
-The template includes a working application with these features implemented:
+WalletOS aims to make wallet workflows safer and more autonomous without removing user approval:
 
-### Core Features
+- analyze transactions and signatures before signing
+- investigate dApps, contracts, claims, and rewards
+- inspect portfolios across wallets and chains
+- prepare multi-step wallet actions
+- keep signing inside the user's wallet or explicitly connected agent-wallet infrastructure
 
-- **Command Palette** (`Cmd+K`) - Searchable command launcher with keyboard navigation
-- **Quick Pane** - Global shortcut (`Cmd+Shift+.`) opens a floating window from any app, even fullscreen. Uses native NSPanel on macOS for proper fullscreen overlay behavior.
-- **Keyboard Shortcuts** - Platform-aware shortcuts with automatic menu integration
-- **Native Menus** - File, Edit, View menus built from JavaScript with full i18n support
-- **Preferences System** - Settings dialog with Rust-side persistence, React hooks, and type-safe access throughout
-- **Collapsible Sidebars** - Empty left and right sidebars with state persistence via resizable panels
-- **Theme System** - Light/dark mode with system preference detection, synced across windows
-- **Notifications** - Toast notifications for in-app feedback, plus native system notifications
-- **Auto-updates** - Tauri updater plugin configured with GitHub Releases integration and update checking on launch
-- **Logging** - Structured logging utilities for both Rust and TypeScript with consistent formatting
-- **Crash Recovery** - Emergency data persistence for recovering unsaved work after unexpected exits
+## Architecture
 
-### Architecture Patterns
-
-- **Three-layer state management** - Clear decision tree: `useState` (component) → `Zustand` (global UI) → `TanStack Query` (persistent data "not owned by the app)
-- **Event-driven Rust-React bridge** - Menus, shortcuts, and command palette all route through the same command system
-- **React Compiler** - Automatic memoization means no manual `useMemo`/`useCallback` needed
-
-### Cross-Platform
-
-| Platform | Title Bar            | Window Controls | Bundle Format |
-| -------- | -------------------- | --------------- | ------------- |
-| macOS    | Custom with vibrancy | Traffic lights  | `.dmg`        |
-| Windows  | Custom               | Right side      | `.msi`        |
-| Linux    | Native + toolbar     | Native          | `.AppImage`   |
-
-Platform detection utilities, platform-specific UI strings ("Reveal in Finder" vs "Show in Explorer"), and separate Tauri configs per platform are all set up.
-
-### Developer Experience
-
-- **Type-safe Tauri commands** - tauri-specta generates TypeScript bindings from Rust, with full autocomplete and compile-time checking
-- **Static analysis** - ESLint, Prettier, ast-grep (architecture enforcement), knip (unused code), jscpd (duplication)
-- **Single quality gate** - `npm run check:all` runs TypeScript, ESLint, Prettier, ast-grep, clippy, and all tests
-- **Testing patterns** - Vitest setup with Tauri command mocking
-
-## Tauri Plugins Included
-
-| Plugin            | Purpose                          |
-| ----------------- | -------------------------------- |
-| single-instance   | Prevent multiple app instances   |
-| window-state      | Remember window position/size    |
-| fs                | File system access               |
-| dialog            | Native open/save dialogs         |
-| notification      | System notifications             |
-| clipboard-manager | Clipboard access                 |
-| global-shortcut   | System-wide keyboard shortcuts   |
-| updater           | In-app auto-updates              |
-| opener            | Open URLs/files with default app |
-| tauri-nspanel     | macOS floating panel behavior    |
-
-## AI-Ready Development
-
-This template is designed to work well with AI coding agents like Claude Code:
-
-- **Comprehensive documentation** in `docs/developer/` covering all patterns. Human readable but really designed to explain the "why" of certain patterns to AI agents. Not slop.
-- **Claude Code integration** - Custom commands (`/check`, `/cleanup`) and a couple of specialized agents
-- **Sensible file organization** - React code in `src/` with clear separation (components, hooks, stores, services), Rust in `src-tauri/src/` with modular command organization. Predictable structure for both humans and AI.
-
-## Getting Started
-
-See **[Using This Template](docs/USING_THIS_TEMPLATE.md)** for setup instructions and workflow guidance.
-
-### Quick Start
-
-```bash
-# Prerequisites: Node.js 18+, Rust (latest stable)
-# See https://tauri.app/start/prerequisites/ for platform-specific deps
-
-git clone <your-repo>
-cd your-app
-npm install
-npm run dev
+```text
+dApp / Browser
+  -> WalletOS Browser Extension
+  -> WalletOS Companion
+  -> Codex agent runtime
+  -> WalletOS Skills
+  -> MCPs / CLIs / APIs
+  -> WalletOS Extension
+  -> Wallet / User Approval
 ```
 
-## Documentation
+The browser extension is the contextual surface: it observes dApps, captures wallet requests, shows agent progress, and routes the user back to their wallet.
 
-- **[Developer Docs](docs/developer/)** - Architecture, patterns, and detailed guides
-- **[User Guide](docs/userguide/)** - End-user documentation template
-- **[Using This Template](docs/USING_THIS_TEMPLATE.md)** - Setup and workflow guide
+The Tauri companion is the local runtime: it receives extension requests, launches `codex exec`, loads installed skills, and returns structured results without exposing private keys.
+
+## Technologies
+
+- Tauri, Rust
+- React, TypeScript, Vite
+- Chrome Extension Manifest V3, Side Panel API, Native Messaging
+- Codex CLI
+- WalletOS Skills loaded from `runtime/.agents/skills`
+- Node.js/Bun scripts for local tooling
+- The Graph Subgraph MCP and Data API
+- Privy Agent Wallet CLI
+- Ledger / Speculos CLI integration
+
+## Sponsors and Integrations
+
+- **The Graph**: onchain intelligence for dApp investigation, subgraph discovery, wallet activity, and portfolio context.
+- **Privy**: agent wallet capability through Privy Agent Wallet CLI for login, wallet listing, funding, signing, and transaction execution under WalletOS policy.
+- **Ledger**: Ledger-compatible development flow through the WalletOS Ledger CLI and Speculos/APDU testing.
+
+## Plugins and Packages
+
+WalletOS is extended through skills and packages:
+
+```text
+runtime/.agents/skills/
+  <skill>/
+    SKILL.md
+    walletos.plugin.json
+
+packages/
+  <package>/
+    bin/
+    SKILL.md
+    walletos.plugin.json
+    mcp.json
+```
+
+`SKILL.md` tells the agent when and how to use a capability. `walletos.plugin.json` declares metadata, requirements, and capabilities. Packages can expose CLIs, MCP configuration, deterministic data collectors, or agent instructions.
+
+Current core skills include:
+
+- `claimos-security`
+- `site-investigation`
+- `the-graph-onchain`
+- `portfolio-intelligence`
+- `wallet-operator`
+- `privy-agents`
+- `ledger-cli`
+
+To add a new skill, create a folder with `SKILL.md` and `walletos.plugin.json`, then include the skill name in the task routing logic when that capability should participate.
+
+## Installation
+
+Prerequisites:
+
+- Node.js
+- Bun
+- Rust
+- Chrome or Chromium browser
+- Codex CLI
+
+```bash
+git clone https://github.com/velascode64/walletos.git
+cd walletos
+bun install
+bun run tauri:dev
+```
+
+Load the extension from `extension/` in Chrome Developer Mode, then start the WalletOS companion with `bun run tauri:dev`.
+
+Optional integrations:
+
+```bash
+export THEGRAPH_API_KEY=...
+pnpm --package=@privy-io/agent-wallet-cli dlx privy-agent-wallet login
+node packages/ledger/bin/walletos-ledger.mjs sync
+```
+
+## Contributing
+
+Contributions are welcome. Good first areas:
+
+- new WalletOS Skills
+- better transaction and signature analysis
+- more wallet/provider support
+- safer action preparation
+- sponsor integrations
+- documentation and examples
+
+Keep changes small, testable, and aligned with the product definitions in [`docs/project-definition/`](docs/project-definition/).
 
 ## License
 
-[MIT](LICENSE.md)
-
----
-
-Built with [Tauri](https://tauri.app) | [shadcn/ui](https://ui.shadcn.com) | [React](https://react.dev)
+MIT. See [`LICENSE.md`](LICENSE.md).
