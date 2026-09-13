@@ -23,6 +23,7 @@ WalletOS aims to make wallet workflows safer and more autonomous without removin
 - keep signing inside the user's wallet or explicitly connected agent-wallet infrastructure
 
 ## Architecture
+![WalletOS architecture](docs/assets/architecture.png)
 
 ```text
 dApp / Browser
