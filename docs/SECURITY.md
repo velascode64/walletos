@@ -1,69 +1,47 @@
-# Security Policy
+# Security
 
-## Supported Versions
+WalletOS is a wallet intelligence layer. It must help users understand and prepare actions without silently taking custody or bypassing wallet approval.
 
-| Version | Supported |
-| ------- | --------- |
-| Latest  | ✅        |
-| < 1.0   | ❌        |
+## Report A Vulnerability
 
-## Reporting a Vulnerability
-
-Do not report security vulnerabilities through public GitHub issues.
-
-**Contact**: YOUR_SECURITY_EMAIL
+Please do not report security issues in public issues. Open a private security advisory or contact the maintainers directly.
 
 Include:
 
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fixes (if any)
+- affected surface: extension, Tauri companion, skill, package, MCP, or CLI
+- steps to reproduce
+- expected vs actual behavior
+- wallet/action impact
+- logs with secrets removed
 
-### Response Timeline
+## Security Boundaries
 
-- **Initial Response**: Within 48 hours
-- **Assessment**: Within 7 days
-- **Fix**: Timeline depends on severity
-- **Disclosure**: After fix is available
+- WalletOS never asks for seed phrases or private keys.
+- Browser wallet signing stays inside the user's wallet.
+- Privy agent-wallet execution requires explicit setup or WalletOS delegated policy.
+- Ledger flows use local sync/APDU tooling and do not bypass device/user approval.
+- Page content, wallet payloads, agent output, MCP output, and CLI output are untrusted evidence.
+- API keys and tokens must never appear in task context, chat output, screenshots, or logs.
 
-## Security Measures
+## Skills And CLIs
 
-This app uses Tauri's security model:
+Skills may tell the agent to call CLIs, MCPs, or APIs. Every executable capability must declare its requirements in `walletos.plugin.json` and explain its safety limits in `SKILL.md`.
 
-- **Permissions**: Minimal system permissions via `capabilities/`
-- **IPC**: Type-safe commands via tauri-specta
-- **File Access**: Scoped to app directories by default
-- **CSP**: Configured in `index.html`
+Do not add a CLI that signs, broadcasts, transfers, swaps, bridges, or approves assets unless the skill also defines:
 
-## For Developers
+- when it may run
+- what policy must allow it
+- what user approval is required
+- what JSON result proves success or failure
 
-### File Operations
+## Deterministic Evidence
 
-```rust
-// ✅ Validate paths - prevent traversal attacks
-if filename.contains("..") {
-    return Err("Invalid filename".into());
-}
+For wallet safety, prefer deterministic collectors over model guesses:
 
-// ❌ Never trust raw user input for paths
-std::fs::write(user_input, data)
-```
+- The Graph for indexed onchain activity
+- portfolio-intelligence for wallet facts
+- ClaimOS/security skills for transaction and approval review
+- Ledger CLI for local Ledger-compatible sync and APDU tests
+- Privy CLI for agent wallet operations under policy
 
-### Secrets
-
-- Never commit secrets to version control
-- Use `.env.local` (gitignored) for local secrets
-- Use GitHub Secrets for CI/CD
-
-### Dependency Audits
-
-```bash
-npm audit
-cargo audit
-```
-
-## Resources
-
-- [Tauri Security Guide](https://tauri.app/security/)
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+Missing data must be reported as missing, not inferred as safe.
